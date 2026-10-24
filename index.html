@@ -136,6 +136,8 @@ details.comment[open] summary::after{content:"收合"}
 .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
 .btn.danger{background:var(--bad-soft);color:var(--bad)}
 .btn:disabled{opacity:.45}
+#me-save:disabled{background:var(--track);color:var(--muted);opacity:1}
+.totals[hidden]{display:none}
 .btn.sm{width:auto;padding:8px 14px;font-size:14px}
 .btns{display:flex;gap:8px}
 
@@ -147,7 +149,7 @@ details.comment[open] summary::after{content:"收合"}
 .mealseg button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .mealseg .hint{font-size:12px;color:var(--warn);align-self:center;margin-left:auto;flex:none}
 .inbar{display:flex;align-items:flex-end;gap:6px}
-.inbar textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--card);border-radius:20px;padding:9px 14px;font-size:16px;line-height:1.35;max-height:120px;min-height:40px;outline:none}
+.inbar textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--card);border-radius:20px;padding:9px 14px;font-size:16px;line-height:1.35;max-height:108px;min-height:40px;outline:none;overflow-y:auto}
 .inbar textarea:focus{border-color:var(--accent)}
 .roundbtn{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;flex:none;color:var(--ink)}
 .roundbtn.send{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
@@ -308,7 +310,7 @@ a{color:var(--accent)}
     <div class="preview" id="preview" hidden></div>
     <div class="inbar">
       <button class="roundbtn" data-act="pickPhoto" aria-label="拍照或選照片"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
-      <button class="roundbtn" data-act="quickFood" aria-label="常用食品"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.5 6 .8-4.4 4.1 1.1 5.9L12 16.4 6.7 19.3l1.1-5.9L3.4 9.3l6-.8z"/></svg></button>
+      <button class="roundbtn" data-act="quickFood" aria-label="常用食品"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11h17a8.5 8.5 0 0 1-17 0z"/><path d="M8 7c0-1.5 1-1.5 1-3M12 7c0-1.5 1-1.5 1-3M16 7c0-1.5 1-1.5 1-3"/></svg></button>
       <textarea id="msg" rows="1" placeholder="吃了什麼、運動或提問"></textarea>
       <button class="roundbtn send" id="sendBtn" data-act="send" aria-label="送出"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
     </div>
@@ -564,8 +566,8 @@ async function createAdjustment(){
           `APP 依規則產生的調整：目標熱量 ${pr.from.kcalMin}–${pr.from.kcalMax} → ${pr.to.kcalMin}–${pr.to.kcalMax}；蛋白質 ${pr.from.pMin}–${pr.from.pMax} → ${pr.to.pMin}–${pr.to.pMax} g；步數 ${pr.from.stepGoal} → ${pr.to.stepGoal}；重訓每週 ${trainTxt(pr.from.trainMin,pr.from.trainMax)} → ${trainTxt(pr.to.trainMin,pr.to.trainMax)}`,
           `調整原因：${pr.reasons.join(' ')}`
         ].join('\n');
-        const r = await callGemini([{text:`【兩週回顧資料】\n${lines}\n\n【學員訊息】\n請寫給學員的兩週回顧，type 為 "question"，answer 包含：「**兩週表現**」（做得好與需要改進的地方）、「**這次調整**」（用白話說明為什麼這樣調，數字以 APP 的調整為準，不可自行更改）、「**接下來兩週重點**」（2–3 點具體行動）。總長 200 字內。`}], await systemPrompt());
-        await DB.adjustments.update(id, {comment: r.answer || r.comment || ''});
+        const r = await callGemini([{text:`【兩週回顧資料】\n${lines}\n\n【學員訊息】\n請寫給學員的兩週回顧，type 為 "question"，reply 包含：「**兩週表現**」（做得好與需要改進的地方）、「**這次調整**」（用白話說明為什麼這樣調，數字以 APP 的調整為準，不可自行更改）、「**接下來兩週重點**」（2–3 點具體行動）。總長 200 字內。`}], await systemPrompt());
+        await DB.adjustments.update(id, {comment: r.reply || r.answer || r.comment || ''});
         render();
       }catch(e){ /* AI 說明失敗時仍保留規則說明 */ }
     }
@@ -714,6 +716,19 @@ async function prepPhoto(file, max=1024){
   return {blob, base64, preview:URL.createObjectURL(blob)};
 }
 
+function pickImage(onFile){
+  // 手機會跳出系統選單（拍照或照片圖庫），電腦會開啟選擇檔案視窗
+  document.querySelectorAll('.tmp-pick').forEach(x=>x.remove());
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; inp.className = 'tmp-pick'; inp.style.display = 'none';
+  inp.addEventListener('change', ()=>{ const f = inp.files[0]; inp.remove(); if(f) onFile(f); });
+  document.body.appendChild(inp); inp.click();
+}
+async function setComposerPhoto(file){
+  try{ state.photo = await prepPhoto(file); renderMealSeg(); updateComposeHeight(); $('#msg').focus(); }
+  catch(err){ toast(err.message); }
+}
+
 /* ========= Gemini ========= */
 const cleanModel = m => String(m||'').trim().replace(/^models\//,'');
 function friendlyError(e){
@@ -792,37 +807,87 @@ function thinkOptions(m){
   if(ver >= 2.5 && /flash/.test(m)) return [{thinkingBudget:0}, null];
   return [null];
 }
-async function callGemini(parts, sys, temperature=0.4){
+async function geminiRequest(m, tc, body, onText){
+  const gc = {...body.generationConfig}; if(tc) gc.thinkingConfig = tc;
+  const payload = JSON.stringify({...body, generationConfig:gc});
+  const base = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:`;
+  const key = `key=${encodeURIComponent(S.apiKey)}`;
+  const partsOf = j => (j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
+  if(!onText){
+    const res = await fetchT(base + 'generateContent?' + key, {method:'POST', headers:{'Content-Type':'application/json'}, body:payload});
+    const j = await res.json().catch(()=>({}));
+    if(!res.ok) return {ok:false, status:res.status, msg:(j.error && j.error.message) || res.statusText};
+    return {ok:true, txt:partsOf(j).filter(x=>x.text && !x.thought).map(x=>x.text).join(''), block:j.promptFeedback && j.promptFeedback.blockReason};
+  }
+  // 邊產生邊顯示：45 秒內沒有收到新內容才算逾時
+  const c = new AbortController(); let timer;
+  const arm = () => { clearTimeout(timer); timer = setTimeout(()=>c.abort(), 45000); };
+  arm();
+  try{
+    const res = await fetch(base + 'streamGenerateContent?alt=sse&' + key, {method:'POST', headers:{'Content-Type':'application/json'}, body:payload, signal:c.signal});
+    if(!res.ok){ const j = await res.json().catch(()=>({})); return {ok:false, status:res.status, msg:(j.error && j.error.message) || res.statusText}; }
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '', txt = '', block;
+    for(;;){
+      const {value, done} = await reader.read(); if(done) break; arm();
+      buf += dec.decode(value, {stream:true});
+      let i;
+      while((i = buf.indexOf('\n')) >= 0){
+        const line = buf.slice(0,i).trim(); buf = buf.slice(i+1);
+        if(!line.startsWith('data:')) continue;
+        let ev; try{ ev = JSON.parse(line.slice(5)); }catch(_){ continue; }
+        if(ev.error) return {ok:false, status:ev.error.code || 500, msg:ev.error.message};
+        if(ev.promptFeedback && ev.promptFeedback.blockReason) block = ev.promptFeedback.blockReason;
+        const add = partsOf(ev).filter(x=>x.text && !x.thought).map(x=>x.text).join('');
+        if(add){ txt += add; try{ onText(txt); }catch(_){} }
+      }
+    }
+    return {ok:true, txt, block};
+  }catch(e){
+    if(e.name === 'AbortError'){ const err = new Error('TIMEOUT'); err.timeout = true; throw err; }
+    throw e;
+  }finally{ clearTimeout(timer); }
+}
+async function callGemini(parts, sys, temperature=0.4, onText=null){
   if(!S.apiKey) throw new Error('NO_KEY');
   const models = [S.model, S.fallbackModel].map(cleanModel).filter((m,i,a)=>m && a.indexOf(m)===i);
+  const body = {systemInstruction:{parts:[{text:sys}]}, contents:[{role:'user', parts}], generationConfig:{responseMimeType:'application/json', temperature}};
   let lastErr;
   for(const m of models){
     try{
       const tries = (m in THINK_OK) ? [THINK_OK[m]] : thinkOptions(m);
-      let j, ok = false, err;
+      let r;
       for(const tc of tries){
-        const gc = {responseMimeType:'application/json', temperature};
-        if(tc) gc.thinkingConfig = tc;
-        const res = await fetchT(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(S.apiKey)}`,{
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:'user', parts}], generationConfig:gc })
-        });
-        j = await res.json().catch(()=>({}));
-        if(res.ok){ THINK_OK[m] = tc; ok = true; break; }
-        err = new Error((j.error && j.error.message) || res.statusText); err.status = res.status;
-        if(!(res.status === 400 && tc)) throw err;  // 只有模型不支援該思考設定時才換下一種
+        r = await geminiRequest(m, tc, body, onText);
+        if(r.ok){ THINK_OK[m] = tc; break; }
+        if(!(r.status === 400 && tc)) break;  // 只有模型不支援該思考設定時才換下一種
       }
-      if(!ok) throw err;
-      const txt = ((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [])
-        .filter(p => p.text && !p.thought).map(p => p.text).join('');
-      if(!txt) throw new Error(j.promptFeedback && j.promptFeedback.blockReason ? '內容被模型拒絕（'+j.promptFeedback.blockReason+'）' : '模型沒有回傳內容');
-      return parseJSON(txt);
+      if(!r.ok){ const err = new Error(r.msg); err.status = r.status; throw err; }
+      if(!r.txt) throw new Error(r.block ? '內容被模型拒絕（' + r.block + '）' : '模型沒有回傳內容');
+      return parseJSON(r.txt);
     }catch(e){
       lastErr = e;
       if(!(e.timeout || e.status === 429 || e.status === 404 || e.status >= 500)) break;
     }
   }
   throw new Error(friendlyError(lastErr));
+}
+// 從尚未完整的 JSON 文字中取出已產生的欄位
+function partialField(txt, key){
+  const m = txt.match(new RegExp('"' + key + '"\\s*:\\s*"')); if(!m) return null;
+  let raw = '';
+  for(let i = m.index + m[0].length; i < txt.length; i++){
+    const ch = txt[i];
+    if(ch === '\\'){ if(i + 1 >= txt.length) break; raw += ch + txt[i+1]; i++; continue; }
+    if(ch === '"') break;
+    raw += ch;
+  }
+  raw = raw.replace(/\\u[0-9a-fA-F]{0,3}$/, '');
+  try{ return JSON.parse('"' + raw + '"'); }catch(_){ return null; }
+}
+function partialIntent(txt){
+  const m = txt.match(/"intent"\s*:\s*\[([^\]]*)\]/); if(!m) return null;
+  return (m[1].match(/"(\w+)"/g) || []).map(x=>x.replace(/"/g,''));
 }
 
 async function systemPrompt(){
@@ -856,23 +921,24 @@ ${foodLines}
 # 輸出格式
 只輸出一個 JSON 物件，不要有其他文字：
 {
+  "intent": [ "meal"、"exercise"、"weight" 中這則訊息要記錄的項目；純提問給空陣列 ],
+  "reply": "給學員的回覆（Markdown）",
   "type": "meal" 或 "exercise" 或 "question",
   "mealType": "breakfast" 或 "lunch" 或 "dinner" 或 "snack" 或 null,
   "date": "YYYY-MM-DD 或 null（學員明確提到其他日期時才填，例如「昨天」「10/20」，依 APP 提供的今天日期換算；沒提到填 null）",
   "weights": [ { "date": "YYYY-MM-DD", "kg": 0 } ],
   "items": [ { "name": "食物名稱", "amount": "份量描述", "kcal": 0, "protein": 0, "carb": 0, "fat": 0 } ],
-  "activities": [ { "kind": "walk|weights|run|swim|cycle|ball|other", "label": "簡短描述", "steps": null, "durationMin": null, "kcalBurned": 0 } ],
-  "comment": "教練點評（Markdown）",
-  "answer": "回答內容（Markdown）"
+  "activities": [ { "kind": "walk|weights|run|swim|cycle|ball|other", "label": "簡短描述", "steps": null, "durationMin": null, "kcalBurned": 0 } ]
 }
 規則：
-- 餐點照片或描述吃了什麼 → type 為 "meal"，items 逐項拆解。comment 依序包含三段：「**點評**」（這餐的優缺點）、「**下一餐建議**」（依這餐加入後的剩餘熱量與蛋白質缺口，具體指示下一餐或睡前吃什麼，同時避免熱量或鈉爆表）、「**步數提醒**」（今日尚未記錄步數或未達標時提醒睡前確認）。
-- 描述運動或步數 → type 為 "exercise"，activities 逐項列出，kcalBurned 採保守估計，步數寫在 steps。comment 簡短點評並提醒飲食配合（例如練後補蛋白質）。
-- 提問 → type 為 "question"，answer 直接回答，需要時引用學員的紀錄。
+- 嚴格依照上方欄位順序輸出：先 intent，再 reply，最後才是 type、items、activities 等數值。reply 寫在數值之前，提到熱量時用約略值（例如「約 800 大卡」），精確數字以後面的 items 為準。
+- 餐點照片或描述吃了什麼 → type 為 "meal"，items 逐項拆解。reply 依序包含三段：「**點評**」（這餐的優缺點）、「**下一餐建議**」（依這餐加入後的剩餘熱量與蛋白質缺口，具體指示下一餐或睡前吃什麼，同時避免熱量或鈉爆表）、「**步數提醒**」（今日尚未記錄步數或未達標時提醒睡前確認）。
+- 描述運動或步數 → type 為 "exercise"，activities 逐項列出，kcalBurned 採保守估計，步數寫在 steps。reply 簡短點評並提醒飲食配合（例如練後補蛋白質）。
+- 提問 → type 為 "question"，reply 直接回答，需要時引用學員的紀錄。
 - 同一則訊息同時有餐點與運動 → type 為 "meal"，items 與 activities 都要填。
-- 學員回報體重 → weights 填入（日期依學員所說，沒說就用 APP 提供的記錄日期），type 依其他內容判斷，沒有其他內容就用 "question"，answer 簡短回應。
-- 不適用的欄位給空陣列或空字串。comment 與 answer 各控制在 250 字以內，用短段落或列點。
-- 照片不是食物或無法辨識 → type 為 "question"，items 為空陣列，answer 說明原因並請學員補充文字描述。`;
+- 學員回報體重 → weights 填入（日期依學員所說，沒說就用 APP 提供的記錄日期），type 依其他內容判斷，沒有其他內容就用 "question"，reply 簡短回應。
+- 不適用的欄位給空陣列或空字串。reply 控制在 250 字以內，用短段落或列點。
+- 照片不是食物或無法辨識 → type 為 "question"，items 為空陣列，reply 說明原因並請學員補充文字描述。`;
 }
 
 async function buildContext(date, mealType, includeMealLine=true){
@@ -1121,6 +1187,8 @@ async function renderToday(v){
   const floorNote = (notPast && k > 0 && k < S.floor) ? `<div class="subnote">至少還要吃 ${fmt(S.floor-k)} 大卡才達安全底線</div>` : '';
   const pNote = p < S.pMin ? `還差 ${fmt(S.pMin-p)}–${fmt(S.pMax-p)} g` : (p <= S.pMax ? '已達標' : '超過上限');
 
+  const pend = state.busy && date === state.date ? (state.pendingIntent || []) : [];
+  const DOTS = '<span class="dots"><span></span><span></span><span></span></span>';
   let html = await adjustmentCard();
   if(date > today()) html += `<div class="notice info" style="margin-top:12px">這是未來日期（${md2(date)}），記錄的內容會算在那一天</div>`;
   if(isToday && S.profileDone){
@@ -1132,7 +1200,7 @@ async function renderToday(v){
     html += `<div class="card onboard"><b>第一次使用</b><p class="small muted" style="margin:6px 0">拍照辨識與教練點評需要 Gemini API 金鑰。常用食品紀錄、步數與體重不需要金鑰也能使用。</p><button class="btn sm" data-act="tab" data-tab="settings">前往設定金鑰</button></div>`;
   }
   html += `<section class="card">
-    <div class="between" style="align-items:flex-start"><div class="row" style="flex-wrap:wrap;gap:4px 10px;min-height:28px"><span class="eyebrow">減脂 Day ${dayNo(date)}</span>${await weightChip(date)}</div><span class="pill ${st.cls}">${st.label}</span></div>
+    <div class="between" style="align-items:flex-start"><div class="row" style="flex-wrap:wrap;gap:4px 10px;min-height:28px"><span class="eyebrow">減脂 Day ${dayNo(date)}</span>${pend.includes('weight') ? `<span class="thinking small">${DOTS}更新中…</span>` : await weightChip(date)}</div><span class="pill ${st.cls}">${st.label}</span></div>
     <div class="big num" style="margin-top:6px">${fmt(k)}<small>/ ${fmt(S.kcalMin)}–${fmt(S.kcalMax)} 大卡</small></div>
     <div class="meter"><div class="band" style="left:${pc(S.kcalMin)}%;width:${pc(S.kcalMax)-pc(S.kcalMin)}%"></div>
       <div class="fill ${st.cls==='good'||st.cls==='none'?'':st.cls}" style="width:${pc(k)}%"></div>
@@ -1149,7 +1217,7 @@ async function renderToday(v){
 
   // 餐點
   html += foldHead('meals', '餐點', d.meals.length ? `（${d.meals.length} 筆，${fmt(k)} 大卡）` : '', 'addMeal') + `<div class="coll ${state.fold.meals?'closed':''}" data-coll="meals"><div>`;
-  if(!d.meals.length) html += `<div class="empty">還沒有餐點紀錄<br>拍照、輸入文字，或按右上「＋ 新增」</div>`;
+  if(!d.meals.length && !pend.includes('meal')) html += `<div class="empty">還沒有餐點紀錄<br>拍照、輸入文字，或按右上「＋ 新增」</div>`;
   for(const [mk] of MEALS){
     for(const m of d.meals.filter(x=>x.mealType===mk)){
       const s = sumItems(m.items);
@@ -1161,6 +1229,7 @@ async function renderToday(v){
       </div>`;
     }
   }
+  if(pend.includes('meal')) html += `<div class="meal"><div class="meal-main">${state.pendingImg?`<img class="thumb" src="${state.pendingImg}" alt="">`:`<div class="thumb ph">${ICON.bowl}</div>`}<div class="thinking" style="flex:1">${DOTS}分析中…</div></div></div>`;
   html += `</div></div>`;
 
   // 運動
@@ -1174,6 +1243,7 @@ async function renderToday(v){
   for(const a of others){
     html += `<div class="act"><div style="flex:1;min-width:0"><b>${ACT_NAME[a.kind]||'運動'}</b> <span class="muted">${esc(a.label||'')}${a.durationMin?`${a.label?' · ':''}${a.durationMin} 分鐘`:''}${a.intensity?` · ${INTENSITY[a.intensity]||''}`:''}</span><div class="small muted">估計消耗約 ${fmt(a.kcalBurned)} 大卡（不加回額度）</div></div><button class="btn ghost sm" data-act="editAct" data-id="${a.id}" style="flex:none">編輯</button></div>`;
   }
+  if(pend.includes('exercise')) html += `<div class="act"><div class="thinking">${DOTS}分析中…</div></div>`;
   html += `</section></div></div>`;
 
   // 對話
@@ -1182,7 +1252,8 @@ async function renderToday(v){
     for(const c of d.chats){
       html += `<div class="bubble q">${c.photoId?`<img data-photo="${c.photoId}" alt="" style="display:block;width:160px;max-width:100%;border-radius:10px;${c.q?'margin-bottom:6px':''}">`:''}${esc(c.q)}</div><div class="bubble a"><div class="md">${md(c.a)}</div></div>`;
     }
-    if(state.pendingQ) html += `<div class="bubble q">${state.pendingImg?`<img src="${state.pendingImg}" alt="" style="display:block;width:160px;max-width:100%;border-radius:10px;${state.pendingQ.trim()?'margin-bottom:6px':''}">`:''}${esc(state.pendingQ.trim())}</div><div class="bubble a thinking"><span class="dots"><span></span><span></span><span></span></span>教練正在思考…</div>`;
+    if(state.pendingQ) html += `<div class="bubble q">${state.pendingImg?`<img src="${state.pendingImg}" alt="" style="display:block;width:160px;max-width:100%;border-radius:10px;${state.pendingQ.trim()?'margin-bottom:6px':''}">`:''}${esc(state.pendingQ.trim())}</div>`
+      + (state.pendingA ? `<div class="bubble a" id="pendingA"><div class="md">${md(state.pendingA)}</div></div>` : `<div class="bubble a thinking" id="pendingA"><span class="dots"><span></span><span></span><span></span></span>教練正在思考…</div>`);
     if(state.lastError) html += `<div class="bubble a" style="border:1.5px solid var(--bad)"><b style="color:var(--bad)">沒有成功</b><p style="margin:4px 0 0">${esc(state.lastError)}</p></div>`;
     html += `</div></div><div id="chatEnd"></div>`;
   }
@@ -1368,36 +1439,53 @@ async function send(){
     const parts = [];
     if(photo) parts.push({inline_data:{mime_type:'image/jpeg', data:photo.base64}});
     parts.push({text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n${photo?'（附上一張餐點照片）\n':''}${text?'文字：'+text:'（無文字說明）'}`});
-    const r = await callGemini(parts, await systemPrompt());
+    const onText = txt => {
+      if(!state.pendingIntent){ const it = partialIntent(txt); if(it && it.length){ state.pendingIntent = it; render(); } }
+      const rep = partialField(txt, 'reply');
+      if(rep && rep !== state.pendingA){
+        const nearBottom = innerHeight + scrollY >= document.body.scrollHeight - 160;
+        state.pendingA = rep;
+        const el = $('#pendingA');
+        if(el){ el.classList.remove('thinking'); el.innerHTML = `<div class="md">${md(rep)}</div>`; }
+        if(nearBottom) window.scrollTo(0, document.body.scrollHeight);
+      }
+    };
+    const r = await callGemini(parts, await systemPrompt(), 0.4, onText);
+    const reply = r.reply || r.comment || r.answer || '';
+    const notes = [];
     const items = Array.isArray(r.items) ? r.items.filter(i=>i && i.name) : [];
     const acts = Array.isArray(r.activities) ? r.activities.filter(a=>a && (a.kind||a.label)) : [];
     const okDate = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && Math.abs(diffDays(x, today())) <= 366;
     const tDate = okDate(r.date) ? r.date : date;
+    const dTag = tDate !== date ? md2(tDate) + ' ' : '';
+    if(acts.length) notes.push(`**已記錄：${dTag}運動** ` + acts.map(a => a.kind==='walk' && num(a.steps) > 0 ? `走路 ${fmt(num(a.steps))} 步` : `${ACT_NAME[a.kind]||'運動'}${a.label?'（'+a.label+'）':''}${a.durationMin?' '+num(a.durationMin)+' 分鐘':''}`).join('、'));
     for(const a of acts){
       if(a.kind === 'walk' && num(a.steps) > 0) await saveSteps(tDate, Math.round(num(a.steps)), a.label);
       else await DB.activities.add({date:tDate, kind: ACT_NAME[a.kind] ? a.kind : 'other', label:a.label||'', steps:a.steps?num(a.steps):null, durationMin:a.durationMin?num(a.durationMin):null, kcalBurned:num(a.kcalBurned), createdAt:Date.now()});
     }
+    const wSaved = [];
     for(const wv of (Array.isArray(r.weights) ? r.weights : [])){
-      const kg = num(wv && wv.kg); if(kg > 30 && kg < 250) await saveWeight(okDate(wv.date) ? wv.date : tDate, kg);
+      const kg = num(wv && wv.kg), wd = okDate(wv && wv.date) ? wv.date : tDate;
+      if(kg > 30 && kg < 250){ await saveWeight(wd, kg); wSaved.push(`${md2(wd)} ${Math.round(kg*10)/10} kg`); }
     }
+    if(wSaved.length) notes.push(`**已記錄：體重** ${wSaved.join('、')}`);
     state.photo = null;
     const photoId = photo ? await DB.photos.add({blob:photo.blob}) : null;
     if(items.length){
       const mt = MEAL_NAME[r.mealType] ? r.mealType : defaultMealType();
       const clean = items.map(normItem), sm = sumItems(clean);
-      const mealId = await DB.meals.add({date:tDate, mealType:mt, items:clean, photoId, comment:r.comment||'', sourceText:text, createdAt:Date.now(), updatedAt:Date.now()});
-      const head = `**已記錄：${tDate!==date?md2(tDate)+' ':''}${MEAL_NAME[mt]}** ${clean.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g（數字不對可按餐點的「編輯」修改）`;
-      await DB.chats.add({date, q:text, photoId, mealId, a: head + (r.comment ? '\n\n' + r.comment : ''), createdAt:Date.now()});
+      const mealId = await DB.meals.add({date:tDate, mealType:mt, items:clean, photoId, comment:reply, sourceText:text, createdAt:Date.now(), updatedAt:Date.now()});
+      notes.unshift(`**已記錄：${dTag}${MEAL_NAME[mt]}** ${clean.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g（數字不對可按餐點的「編輯」修改）`);
+      await DB.chats.add({date, q:text, photoId, mealId, a:[reply, ...notes].filter(Boolean).join('\n\n'), createdAt:Date.now()});
     } else {
-      const a = r.answer || r.comment || '（沒有回覆內容）';
-      await DB.chats.add({date, q:text, photoId, a, createdAt:Date.now()});
+      await DB.chats.add({date, q:text, photoId, a:[reply, ...notes].filter(Boolean).join('\n\n') || '（沒有回覆內容）', createdAt:Date.now()});
     }
   }catch(e){
     ta.value = text; autoGrow(); state.photo = photo;
     state.lastError = e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message;
     toast(e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message, 4200);
   }finally{
-    state.busy = false; state.pendingQ = ''; state.pendingImg = ''; await render();
+    state.busy = false; state.pendingQ = ''; state.pendingImg = ''; state.pendingIntent = null; state.pendingA = ''; await render();
     window.scrollTo(0, document.body.scrollHeight);
   }
 }
@@ -1409,8 +1497,8 @@ async function review(){
   window.scrollTo(0, document.body.scrollHeight);
   try{
     const ctx = await buildContext(state.date, null, false);
-    const r = await callGemini([{text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n請依今日全部紀錄做今日總評，type 為 "question"，answer 包含：今日整體表現（熱量與蛋白質是否達標）、做得好的地方、需要改進的地方、明天的具體建議與步數提醒。`}], await systemPrompt());
-    await DB.chats.add({date:state.date, q:'今日總評', a:r.answer||r.comment||'', createdAt:Date.now()});
+    const r = await callGemini([{text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n請依今日全部紀錄做今日總評，type 為 "question"，reply 包含：今日整體表現（熱量與蛋白質是否達標）、做得好的地方、需要改進的地方、明天的具體建議與步數提醒。`}], await systemPrompt());
+    await DB.chats.add({date:state.date, q:'今日總評', a:r.reply||r.answer||r.comment||'', createdAt:Date.now()});
   }catch(e){ state.lastError = e.message; }
   finally{ state.busy = false; state.pendingQ = ''; await render(); window.scrollTo(0, document.body.scrollHeight); }
 }
@@ -1439,17 +1527,14 @@ async function openMealEditor(opt){
   let mealType = opt.mealType;
   const photoSrcUrl = opt.photoBlob ? URL.createObjectURL(opt.photoBlob) : (opt.photoId ? await photoSrc(opt.photoId) : '');
   const sh = openSheet(`<div class="between"><h2>${opt.manual?'新增餐點':opt.isNew?'確認餐點':'編輯餐點'}</h2><span class="small muted">${md2(opt.date)}</span></div>
-    ${opt.manual?`<div class="btns" style="margin-bottom:10px"><button class="btn" id="me-photo">拍照辨識</button><button class="btn ghost" id="me-pick">從常用食品選</button></div><input type="file" id="me-file" accept="image/*" hidden>`:''}
     <div class="seg" id="me-type"></div>
-    <div id="me-photobox"></div>
-    ${photoSrcUrl?`<img src="${photoSrcUrl}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-top:12px">`:''}
+    <div id="me-photobox">${photoSrcUrl?`<img src="${photoSrcUrl}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-top:12px">`:''}</div>
     ${opt.isNew && opt.comment?'<p class="small muted" style="margin:10px 2px 0">AI 估算值僅供參考，份量或數值不對請直接修改。</p>':''}
     <div id="me-items"></div>
-    <div class="btns"><button class="btn ghost sm" id="me-add">＋ 空白項目</button>${opt.manual?'':'<button class="btn ghost sm" id="me-food">＋ 常用食品</button>'}</div>
+    <div class="btns" style="gap:6px"><button class="btn ghost sm" id="me-cam" style="flex:1;padding:8px 2px;font-size:13px">照片</button><button class="btn ghost sm" id="me-food" style="flex:1;padding:8px 2px;font-size:13px">常用食品</button><button class="btn ghost sm" id="me-add" style="flex:1;padding:8px 2px;font-size:13px">空白自填</button></div>
     <div class="totals num" id="me-tot"></div>
     ${opt.comment?`<details class="comment card" style="padding:0 14px" ${opt.isNew?'open':''}><summary>教練點評</summary><div class="md">${md(opt.comment)}</div></details>`:''}
-    <div class="btns" style="margin-top:12px">${opt.isNew?'':'<button class="btn danger" id="me-del" style="flex:1">刪除</button>'}<button class="btn" id="me-save" style="flex:2">儲存</button></div>
-    ${opt.isNew?'<button class="btn ghost" id="me-cancel" style="margin-top:8px">放棄這筆</button>':''}`);
+    <div class="btns" style="margin-top:12px">${opt.isNew?'<button class="btn danger" id="me-cancel" style="flex:1">放棄</button>':'<button class="btn danger" id="me-del" style="flex:1">刪除</button>'}<button class="btn" id="me-save" style="flex:2">儲存</button></div>`);
   const sync = () => {
     sh.querySelectorAll('.item').forEach((el,idx)=>{
       const g = n => el.querySelector(`[data-f="${n}"]`).value;
@@ -1457,7 +1542,11 @@ async function openMealEditor(opt){
     });
   };
   const drawType = () => { sh.querySelector('#me-type').innerHTML = MEALS.map(([k,n])=>`<button class="${mealType===k?'on':''}" data-k="${k}">${n}</button>`).join(''); };
-  const drawTot = () => { const s = sumItems(items); sh.querySelector('#me-tot').innerHTML = `<div><b>${fmt(s.kcal)}</b><span>大卡</span></div><div><b>${fmt(s.protein)}</b><span>蛋白質 g</span></div><div><b>${fmt(s.carb)}</b><span>碳水 g</span></div><div><b>${fmt(s.fat)}</b><span>脂肪 g</span></div>`; };
+  const drawTot = () => {
+    const tot = sh.querySelector('#me-tot'), save = sh.querySelector('#me-save');
+    tot.hidden = !items.length;
+    save.disabled = !items.some(i=>String(i.name||'').trim());
+    const s = sumItems(items); tot.innerHTML = `<div><b>${fmt(s.kcal)}</b><span>大卡</span></div><div><b>${fmt(s.protein)}</b><span>蛋白質 g</span></div><div><b>${fmt(s.carb)}</b><span>碳水 g</span></div><div><b>${fmt(s.fat)}</b><span>脂肪 g</span></div>`; };
   const draw = () => {
     sh.querySelector('#me-items').innerHTML = items.length ? items.map((i,idx)=>`<div class="item" data-idx="${idx}">
       <div class="item-head"><input class="in" data-f="name" value="${esc(i.name)}" placeholder="食物名稱"><button class="xbtn" data-del="${idx}" aria-label="刪除">×</button></div>
@@ -1469,7 +1558,7 @@ async function openMealEditor(opt){
         <label>脂肪 g<input class="in num" data-f="fat" inputmode="decimal" value="${i.fat}"></label>
       </div>
       ${i.foodId?'<div class="small muted" style="margin-top:4px">來自常用食品</div>':`<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn sm" data-savefood="${idx}">存為常用食品</button></div>`}
-    </div>`).join('') : '<div class="empty">尚無品項</div>';
+    </div>`).join('') : '<div class="empty">尚無品項<br>請用下方「照片」「常用食品」或「空白自填」新增</div>';
     drawTot();
   };
   drawType(); draw();
@@ -1482,50 +1571,49 @@ async function openMealEditor(opt){
     if(sf){ sync(); const i = items[Number(sf.dataset.savefood)]; openFoodForm({name:i.name, servingDesc:i.amount||'1 份', kcal:i.kcal, protein:i.protein, carb:i.carb, fat:i.fat}); }
   });
   sh.querySelector('#me-add').onclick = () => { sync(); items.push({name:'',amount:'',kcal:0,protein:0,carb:0,fat:0}); draw(); };
-  if(sh.querySelector('#me-food')) sh.querySelector('#me-food').onclick = () => { sync(); openFoodPicker(picked=>{ items.push(...picked); draw(); }); };
-  if(opt.manual){
-    sh.querySelector('#me-pick').onclick = () => { sync(); openFoodPicker(picked=>{ items.push(...picked); draw(); }); };
-    sh.querySelector('#me-photo').onclick = () => {
-      if(!S.apiKey){ toast('拍照辨識需要 API 金鑰，請先到設定輸入'); return; }
-      sh.querySelector('#me-file').click();
-    };
-    sh.querySelector('#me-file').addEventListener('change', async e=>{
-      const file = e.target.files[0]; e.target.value = ''; if(!file) return;
-      const btn = sh.querySelector('#me-photo'); btn.disabled = true; btn.textContent = '辨識中…';
-      try{
-        sync();
-        const ph = await prepPhoto(file);
-        opt.photoBlob = ph.blob;
-        sh.querySelector('#me-photobox').innerHTML = `<img src="${ph.preview}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-top:12px">`;
-        const ctx = await buildContext(opt.date, mealType);
-        const r = await callGemini([{inline_data:{mime_type:'image/jpeg', data:ph.base64}}, {text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n（附上一張餐點照片，記錄為${MEAL_NAME[mealType]}）`}], await systemPrompt());
-        const got = (Array.isArray(r.items) ? r.items.filter(i=>i && i.name) : []).map(normItem);
-        if(!got.length) toast(r.answer || '照片無法辨識，請手動輸入', 4000);
-        items.push(...got); opt.comment = r.comment || opt.comment || ''; opt.fromPhoto = got.length > 0; draw();
-      }catch(err){ toast(err.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : err.message, 4200); }
-      finally{ btn.disabled = false; btn.textContent = '拍照辨識'; }
-    });
-  }
+  sh.querySelector('#me-food').onclick = () => { sync(); openFoodPicker(picked=>{ items.push(...picked); draw(); }); };
+  const recognize = async file => {
+    const cam = sh.querySelector('#me-cam');
+    cam.disabled = true; cam.textContent = '辨識中…';
+    try{
+      sync();
+      const ph = await prepPhoto(file);
+      opt.photoBlob = ph.blob; opt.newPhoto = true;
+      sh.querySelector('#me-photobox').innerHTML = `<img src="${ph.preview}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-top:12px">`;
+      const ctx = await buildContext(opt.date, mealType);
+      const r = await callGemini([{inline_data:{mime_type:'image/jpeg', data:ph.base64}}, {text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n（附上一張餐點照片，記錄為${MEAL_NAME[mealType]}）`}], await systemPrompt());
+      const got = (Array.isArray(r.items) ? r.items.filter(i=>i && i.name) : []).map(normItem);
+      if(!got.length) toast(r.reply || r.answer || '照片無法辨識，請手動輸入', 4000);
+      items.push(...got); if(r.reply || r.comment) opt.comment = r.reply || r.comment; opt.fromPhoto = got.length > 0; draw();
+    }catch(err){ toast(err.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : err.message, 4200); }
+    finally{ cam.disabled = false; cam.textContent = '照片'; }
+  };
+  const needKey = () => { if(!S.apiKey){ toast('拍照辨識需要 API 金鑰，請先到設定輸入'); return true; } return false; };
+  sh.querySelector('#me-cam').onclick = () => { if(!needKey()) pickImage(recognize); };
   sh.querySelector('#me-save').onclick = async () => {
     sync();
     const clean = items.filter(i=>i.name.trim()).map(normItem);
     if(!clean.length){ toast('至少需要一個品項'); return; }
     let photoId = opt.photoId || null;
-    if(opt.photoBlob && !photoId) photoId = await DB.photos.add({blob:opt.photoBlob});
+    if(opt.photoBlob && (!photoId || opt.newPhoto)){
+      if(photoId){ await DB.photos.delete(photoId); photoURL.delete(photoId); }
+      photoId = await DB.photos.add({blob:opt.photoBlob});
+    }
     const rec = {date:opt.date, mealType, items:clean, photoId, comment:opt.comment||'', sourceText:opt.sourceText||'', updatedAt:Date.now()};
+    let mealId = opt.id;
     if(opt.id) await DB.meals.update(opt.id, rec);
     else {
-      const mealId = await DB.meals.add({...rec, createdAt:Date.now()});
-      if(opt.fromPhoto && opt.comment){
-        const sm = sumItems(clean);
-        await DB.chats.add({date:opt.date, q:'', photoId, mealId, a:`**已記錄：${MEAL_NAME[mealType]}** ${clean.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g\n\n${opt.comment}`, createdAt:Date.now()});
-      }
+      mealId = await DB.meals.add({...rec, createdAt:Date.now()});
       for(const i of clean) if(i.foodId){ const f = await DB.foods.get(i.foodId); if(f) await DB.foods.update(f.id,{useCount:(f.useCount||0)+1}); }
+    }
+    if(opt.fromPhoto && opt.comment){
+      const sm = sumItems(clean);
+      await DB.chats.add({date:opt.date, q:'', photoId, mealId, a:`**已記錄：${MEAL_NAME[mealType]}** ${clean.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g\n\n${opt.comment}`, createdAt:Date.now()});
     }
     closeSheet(); toast('已儲存'); render();
   };
   const cancel = sh.querySelector('#me-cancel');
-  if(cancel) cancel.onclick = () => { if(confirm('確定放棄這筆餐點？')) closeSheet(); };
+  if(cancel) cancel.onclick = () => { if(!items.length && !opt.photoBlob) { closeSheet(); return; } if(confirm('確定放棄這筆餐點？')) closeSheet(); };
   const del = sh.querySelector('#me-del');
   if(del) del.onclick = async () => {
     if(!confirm('確定刪除這筆餐點？')) return;
@@ -1812,7 +1900,7 @@ const ACTIONS = {
   openCal: () => openCalSheet(),
   goToday: () => goDate(today()),
   mealType: b => { state.mealType = b.dataset.k; renderMealSeg(); },
-  pickPhoto: () => $('#photoInput').click(),
+  pickPhoto: () => pickImage(setComposerPhoto),
   clearPhoto: () => { state.photo = null; renderMealSeg(); updateComposeHeight(); },
   quickFood: () => openFoodPicker(items => openMealEditor({date:state.date, mealType:defaultMealType(), items, comment:'', isNew:true})),
   send: () => send(),
@@ -1889,7 +1977,7 @@ document.addEventListener('change', async e=>{
   if(id === 's-apiKey') fillModelSelects();
 });
 const ta = $('#msg');
-function autoGrow(){ ta.style.height='auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; updateComposeHeight(); }
+function autoGrow(){ ta.style.height='auto'; ta.style.height = Math.min(108, ta.scrollHeight + 2) + 'px'; updateComposeHeight(); }  // 最多 4 行，超過在框內滑動
 ta.addEventListener('input', autoGrow);
 window.addEventListener('scroll', ()=>{ $('#top').classList.toggle('scrolled', scrollY>4); updateJump(); }, {passive:true});
 window.addEventListener('resize', updateJump);
