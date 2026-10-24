@@ -1,0 +1,1915 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>減脂追蹤</title>
+<meta name="theme-color" content="#f3f2ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111311" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="減脂追蹤">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<script src="https://cdn.jsdelivr.net/npm/dexie@4/dist/dexie.min.js"></script>
+<style>
+:root{
+  --bg:#f3f2ee; --card:#ffffff; --card2:#f8f7f4; --ink:#1b1d1a; --muted:#6a6e66; --line:#e3e1db;
+  --accent:#2c7a4b; --accent-ink:#ffffff; --accent-soft:#e2f0e7;
+  --warn:#b8700d; --warn-soft:#fbefd9; --bad:#bf3b28; --bad-soft:#fbe3de;
+  --info:#2d6aa8; --info-soft:#e1ebf6; --protein:#6c4bb8; --protein-soft:#ece6f8;
+  --track:#ebe9e3; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.04);
+  --tabh:58px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#111311; --card:#1b1e1b; --card2:#222622; --ink:#ebeae5; --muted:#9a9e95; --line:#2d312c;
+    --accent:#5cc488; --accent-ink:#0d1a12; --accent-soft:#1d3326;
+    --warn:#e2a24a; --warn-soft:#3a2c14; --bad:#ec7a66; --bad-soft:#3d1f1a;
+    --info:#79aee6; --info-soft:#1a2a3c; --protein:#a98ef0; --protein-soft:#2a2340;
+    --track:#2a2e29; --shadow:none;
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;font-size:16px;line-height:1.5;
+  padding-bottom:calc(var(--tabh) + var(--compose-h,0px) + env(safe-area-inset-bottom) + 20px);-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:560px;margin:0 auto;padding:0 16px}
+
+/* header */
+.top{position:sticky;top:0;z-index:20;background:var(--bg);padding-top:env(safe-area-inset-top);border-bottom:1px solid transparent}
+.top.scrolled{border-bottom-color:var(--line)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:52px;gap:8px}
+.top h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.01em}
+.datenav{display:flex;align-items:center;gap:2px}
+.iconbtn{border:0;background:transparent;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--ink)}
+.iconbtn:active{background:var(--track)}
+.iconbtn:disabled{opacity:.3}
+.datelabel{font-weight:650;font-size:16px;min-width:126px;text-align:center}
+.chip-btn{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 12px;font-size:14px}
+
+/* cards */
+.card{background:var(--card);border-radius:18px;padding:16px;box-shadow:var(--shadow);margin:12px 0}
+.eyebrow{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.02em}
+.sec-title{font-size:13px;color:var(--muted);font-weight:650;margin:22px 4px 6px;letter-spacing:.04em}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.row{display:flex;align-items:center;gap:8px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:8px}
+
+/* hero */
+.big{font-size:36px;font-weight:700;line-height:1.1;letter-spacing:-.01em}
+.big small{font-size:15px;font-weight:500;color:var(--muted);margin-left:4px;letter-spacing:0}
+.pill{font-size:12px;font-weight:650;padding:3px 10px;border-radius:999px;white-space:nowrap}
+.pill.good{background:var(--accent-soft);color:var(--accent)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.info{background:var(--info-soft);color:var(--info)}
+.pill.none{background:var(--track);color:var(--muted)}
+.meter{position:relative;height:14px;border-radius:8px;background:var(--track);margin:14px 0 6px;overflow:hidden}
+.meter .band{position:absolute;top:0;bottom:0;background:var(--accent-soft);border-left:2px solid var(--accent);border-right:2px solid var(--accent);opacity:.9}
+.meter .fill{position:absolute;left:0;top:3px;bottom:3px;border-radius:6px;background:var(--accent);transition:width .4s}
+.meter .fill.warn{background:var(--warn)} .meter .fill.bad{background:var(--bad)} .meter .fill.info{background:var(--info)}
+.meter .floor{position:absolute;top:0;bottom:0;width:0;border-left:2px dashed var(--bad)}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.remain{margin-top:10px;font-weight:600}
+.remain.bad{color:var(--bad)}
+.macros{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.macro .lbl{font-size:12px;color:var(--muted);font-weight:600}
+.macro .val{font-size:19px;font-weight:700}
+.macro .val small{font-size:12px;font-weight:500;color:var(--muted)}
+.minibar{height:6px;background:var(--track);border-radius:4px;margin-top:4px;position:relative;overflow:hidden}
+.minibar span{position:absolute;left:0;top:0;bottom:0;background:var(--protein);border-radius:4px}
+.subnote{font-size:13px;color:var(--muted);margin-top:4px}
+
+/* steps */
+.steps .val{font-size:20px;font-weight:700}
+.notice{background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:10px 12px;font-size:14px;margin-top:10px}
+
+/* meals */
+.meal{background:var(--card);border-radius:16px;box-shadow:var(--shadow);margin:8px 0;overflow:hidden}
+.meal-main{display:flex;gap:12px;padding:12px;align-items:center;border:0;background:transparent;width:100%;text-align:left}
+.thumb{width:58px;height:58px;border-radius:12px;object-fit:cover;background:var(--track);flex:none}
+.thumb.ph{display:grid;place-items:center;color:var(--muted)}
+.meal-title{font-weight:650}
+.meal-items{font-size:14px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+details.comment{border-top:1px solid var(--line);padding:0 14px}
+details.comment summary{list-style:none;padding:10px 0;font-size:14px;font-weight:650;color:var(--accent);display:flex;justify-content:space-between}
+details.comment summary::-webkit-details-marker{display:none}
+details.comment summary::after{content:"展開";font-weight:500;color:var(--muted);font-size:13px}
+details.comment[open] summary::after{content:"收合"}
+.md{font-size:15px;padding-bottom:12px}
+.md p{margin:.35em 0}
+.md ul{margin:.3em 0;padding-left:1.2em}
+.md li{margin:.2em 0}
+.md .md-h{font-weight:700;margin-top:.7em}
+.typebadge{font-size:12px;font-weight:650;color:var(--muted);margin-right:6px}
+
+.act{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);gap:8px}
+.act:last-child{border-bottom:0}
+.xbtn{border:0;background:transparent;color:var(--muted);font-size:20px;width:32px;height:32px;border-radius:8px}
+
+.bubble{border-radius:16px;padding:10px 14px;margin:8px 0;max-width:92%}
+.bubble.q{background:var(--accent);color:var(--accent-ink);margin-left:auto;width:fit-content;white-space:pre-wrap}
+.bubble.a{background:var(--card);box-shadow:var(--shadow)}
+.bubble.a .md{padding-bottom:0}
+.thinking{display:flex;align-items:center;gap:10px;color:var(--muted)}
+.dots span{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:3px;animation:b 1s infinite}
+.dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
+@keyframes b{0%,80%,100%{opacity:.25}40%{opacity:1}}
+
+.empty{text-align:center;color:var(--muted);padding:22px 10px;font-size:14px}
+.btn{border:0;border-radius:12px;padding:12px 16px;font-weight:650;background:var(--accent);color:var(--accent-ink);width:100%}
+.btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.btn.danger{background:var(--bad-soft);color:var(--bad)}
+.btn:disabled{opacity:.45}
+.btn.sm{width:auto;padding:8px 14px;font-size:14px}
+.btns{display:flex;gap:8px}
+
+/* composer */
+.composer{position:fixed;left:0;right:0;bottom:calc(var(--tabh) + env(safe-area-inset-bottom));z-index:30;background:var(--bg);border-top:1px solid var(--line);padding:8px 0 10px}
+.composer.hidden{display:none}
+.mealseg{display:flex;gap:6px;margin-bottom:8px;overflow-x:auto}
+.mealseg button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 12px;font-size:14px;flex:none}
+.mealseg button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.mealseg .hint{font-size:12px;color:var(--warn);align-self:center;margin-left:auto;flex:none}
+.inbar{display:flex;align-items:flex-end;gap:6px}
+.inbar textarea{flex:1;resize:none;border:1px solid var(--line);background:var(--card);border-radius:20px;padding:9px 14px;font-size:16px;line-height:1.35;max-height:120px;min-height:40px;outline:none}
+.inbar textarea:focus{border-color:var(--accent)}
+.roundbtn{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;flex:none;color:var(--ink)}
+.roundbtn.send{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.roundbtn:disabled{opacity:.4}
+.preview{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.preview img{width:52px;height:52px;object-fit:cover;border-radius:10px}
+
+/* tabbar */
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:31;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.tabbar .wrap{display:grid;grid-template-columns:repeat(5,1fr);height:var(--tabh);padding:0 4px}
+.tabbar button{border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;color:var(--muted);font-weight:600}
+.tabbar button.on{color:var(--accent)}
+
+/* sheet */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:fade .2s}
+.sheet{background:var(--bg);width:100%;max-width:600px;max-height:92vh;overflow:auto;border-radius:22px 22px 0 0;padding:8px 16px calc(20px + env(safe-area-inset-bottom));animation:up .25s cubic-bezier(.2,.8,.2,1);overscroll-behavior:contain}
+.sheet .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px}
+.sheet h2{font-size:18px;margin:4px 0 12px}
+@keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+
+/* forms */
+.field{display:block;margin:10px 0}
+.field > span{display:block;font-size:13px;color:var(--muted);font-weight:600;margin-bottom:4px}
+.in{width:100%;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:10px 12px;font-size:16px;outline:none;min-width:0}
+.in:focus{border-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 10px}
+.item{background:var(--card);border-radius:14px;padding:10px 12px;margin:8px 0;box-shadow:var(--shadow)}
+.item-head{display:flex;gap:6px;align-items:center}
+.item-head .in{font-weight:650}
+.item-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}
+.item-grid label{font-size:11px;color:var(--muted);font-weight:600}
+.item-grid .in{padding:7px 8px;font-size:16px;text-align:right}
+.item .amount{margin-top:6px}
+.linkbtn{border:0;background:transparent;color:var(--accent);font-size:13px;font-weight:650;padding:6px 0}
+.totals{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;background:var(--card);border-radius:14px;padding:10px 4px;margin:10px 0}
+.totals b{display:block;font-size:17px}
+.totals span{font-size:11px;color:var(--muted)}
+.foodrow{display:flex;align-items:center;gap:10px;padding:12px;background:var(--card);border-radius:14px;margin:6px 0;box-shadow:var(--shadow)}
+.foodrow .info{flex:1;min-width:0}
+.foodrow .name{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stepper{display:flex;align-items:center;gap:4px}
+.stepper button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--card2)}
+.stepper input{width:44px;text-align:center;border:0;background:transparent;font-size:16px;font-weight:650}
+.seg{display:flex;background:var(--track);border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:transparent;border-radius:9px;padding:7px 4px;font-size:14px;font-weight:600;color:var(--muted)}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+
+/* calendar */
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal .wd{text-align:center;font-size:12px;color:var(--muted);font-weight:600;padding:4px 0}
+.cal button{aspect-ratio:1/1.08;border:0;border-radius:12px;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:15px;font-weight:600;padding:0;box-shadow:var(--shadow)}
+.cal button small{font-size:10px;font-weight:500;color:var(--muted);margin-top:1px}
+.cal button.good{background:var(--accent-soft)} .cal button.good small{color:var(--accent)}
+.cal button.warn{background:var(--warn-soft)} .cal button.warn small{color:var(--warn)}
+.cal button.bad{background:var(--bad-soft)} .cal button.bad small{color:var(--bad)}
+.cal button.info{background:var(--info-soft)} .cal button.info small{color:var(--info)}
+.cal button.today{outline:2px solid var(--ink);outline-offset:-2px}
+.cal button.future{color:var(--muted)}
+.cal button.sel{background:var(--ink)!important;color:var(--bg)!important}
+.cal button.sel small{color:var(--bg)!important}
+/* 週列 */
+.wkhead{display:flex;align-items:center;justify-content:space-between;height:46px}
+.wkhead .mon{border:0;background:transparent;padding:0;font-size:20px;font-weight:700;color:var(--ink)}
+.wkstrip{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-left:6.25%;scrollbar-width:none;padding:0 0 8px;overscroll-behavior-x:contain;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 7%,#000 93%,transparent 100%);mask-image:linear-gradient(90deg,transparent 0,#000 7%,#000 93%,transparent 100%)}
+.wkstrip::-webkit-scrollbar{display:none}
+.wkspace{flex:0 0 6.25%}
+.wkday{flex:0 0 12.5%;scroll-snap-align:start;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;gap:3px;padding:0;color:var(--ink)}
+.wkday .w{font-size:12px;color:var(--muted);font-weight:600}
+.wkday .n{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:17px;font-weight:700;transition:background .2s,color .2s}
+.wkday.today:not(.sel) .n{color:var(--accent)}
+.wkday.future:not(.sel) .n{color:var(--muted);font-weight:500}
+.wkday.sel .n{background:var(--ink);color:var(--bg)}
+.wkday .dot{width:6px;height:6px;border-radius:50%;background:transparent}
+.dot.good{background:var(--accent)} .dot.info{background:var(--info)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+.cal .blank{visibility:hidden;aspect-ratio:1/1.08}
+
+/* charts */
+.chart svg{width:100%;height:auto;display:block}
+.chart .grid{stroke:var(--line);stroke-width:1}
+.chart .axis{fill:var(--muted);font-size:10px}
+.chart .bandr{fill:var(--accent-soft)}
+.chart .floorl{stroke:var(--bad);stroke-dasharray:4 3;stroke-width:1.2}
+.chart .bar{fill:var(--accent)} .chart .bar.warn{fill:var(--warn)} .chart .bar.bad{fill:var(--bad)} .chart .bar.info{fill:var(--info)}
+.chart .pbar{fill:var(--protein)}
+.chart .wline{fill:none;stroke:var(--ink);stroke-width:2}
+.chart .wdot{fill:var(--card);stroke:var(--ink);stroke-width:2}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--card);border-radius:14px;padding:12px;box-shadow:var(--shadow)}
+.stat b{display:block;font-size:22px}
+.stat span{font-size:12px;color:var(--muted);font-weight:600}
+
+.toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 14px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:14px;font-size:14px;z-index:90;max-width:88vw;box-shadow:0 6px 20px rgba(0,0,0,.2);animation:fade .2s}
+.onboard ol{padding-left:1.2em;margin:8px 0}
+.onboard li{margin:4px 0}
+a{color:var(--accent)}
+/* 折疊區塊 */
+.sec-head{display:flex;align-items:center;gap:8px;width:100%;margin:16px 0 2px;color:var(--muted);font-size:13px;font-weight:650;letter-spacing:.04em}
+.sec-head .sh-t{flex:1;border:0;background:transparent;padding:6px 4px;color:inherit;font:inherit;letter-spacing:inherit;text-align:left}
+.sec-head .chev{border:0;background:transparent;color:inherit;width:32px;height:32px;padding:0}
+.addbtn{border:0;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:4px 12px;font-size:13px;font-weight:650;letter-spacing:0;white-space:nowrap;flex:none}
+.wt{border:0;background:transparent;padding:0;color:var(--ink);font-size:13px;display:inline-flex;align-items:baseline;gap:6px;flex-wrap:wrap;text-align:left}
+.wt b{font-size:16px}
+.wt .up{color:var(--warn)} .wt .down{color:var(--accent)} .wt .flat{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px;font-size:14px}
+.chips button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:650}
+.sec-head .sum{font-weight:500;margin-left:6px;letter-spacing:0}
+.sec-head .chev{display:grid;place-items:center;transition:transform .3s ease}
+.sec-head.closed .chev{transform:rotate(-90deg)}
+.coll{display:grid;grid-template-rows:1fr;transition:grid-template-rows .3s ease, opacity .3s ease}
+.coll.closed{grid-template-rows:0fr;opacity:0}
+.coll > div{overflow:hidden;min-height:0}
+/* 浮動跳轉按鈕 */
+.jump{position:fixed;right:16px;bottom:calc(var(--tabh) + env(safe-area-inset-bottom) + var(--compose-h,0px) + 12px);z-index:35;border:0;border-radius:999px;padding:8px 14px;font-size:14px;font-weight:650;background:var(--ink);color:var(--bg);box-shadow:0 4px 14px rgba(0,0,0,.25);transition:opacity .2s, transform .2s}
+.jump.hide{opacity:0;transform:translateY(8px);pointer-events:none}
+.steps{cursor:pointer}
+/* wizard */
+.wiz{position:fixed;inset:0;z-index:80;background:var(--bg);overflow:auto;padding:calc(env(safe-area-inset-top) + 12px) 0 calc(env(safe-area-inset-bottom) + 110px)}
+.wiz[hidden]{display:none}
+.prog{height:4px;background:var(--track);border-radius:2px;margin:8px 0 26px}
+.prog span{display:block;height:100%;background:var(--accent);border-radius:2px;transition:width .3s}
+.wiz h2{font-size:24px;margin:0 0 6px;line-height:1.3}
+.wiz .lead{color:var(--muted);margin:0 0 16px}
+.opt{display:block;width:100%;text-align:left;border:1.5px solid var(--line);background:var(--card);border-radius:16px;padding:14px 16px;margin:10px 0}
+.opt.on{border-color:var(--accent);background:var(--accent-soft)}
+.opt b{display:block;font-size:17px}
+.opt span{font-size:14px;color:var(--muted)}
+.wiz-nav{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;max-width:560px;margin:0 auto;padding:12px 16px calc(env(safe-area-inset-bottom) + 16px);background:var(--bg)}
+.keybox{position:relative}
+.keybox .in{padding-right:48px}
+.keybox .in::-ms-reveal,.keybox .in::-ms-clear{display:none}
+.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;height:40px;border:0;background:transparent;color:var(--muted);display:grid;place-items:center}
+.kv{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.kv:last-child{border-bottom:0}
+.kv small{display:block;color:var(--muted);font-size:12px}
+.kv b{white-space:nowrap}
+/* adjustment */
+.adj{border:1.5px solid var(--accent)}
+.adj table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+.adj td{padding:7px 0;border-bottom:1px solid var(--line)}
+.adj td:nth-child(2),.adj td:nth-child(3){text-align:right;white-space:nowrap}
+.adj td:nth-child(3){font-weight:700;padding-left:10px}
+.adj tr.chg td:nth-child(3){color:var(--accent)}
+.adj ul{margin:6px 0;padding-left:1.2em;font-size:14px}
+.notice.info{background:var(--info-soft);color:var(--info)}
+</style>
+</head>
+<body>
+<header class="top" id="top"><div class="wrap" id="topInner"></div></header>
+<main class="wrap" id="view"></main>
+
+<div class="composer" id="composer">
+  <div class="wrap">
+    <div class="mealseg" id="mealseg"></div>
+    <div class="preview" id="preview" hidden></div>
+    <div class="inbar">
+      <button class="roundbtn" data-act="pickPhoto" aria-label="拍照或選照片"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+      <button class="roundbtn" data-act="quickFood" aria-label="常用食品"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.5 6 .8-4.4 4.1 1.1 5.9L12 16.4 6.7 19.3l1.1-5.9L3.4 9.3l6-.8z"/></svg></button>
+      <textarea id="msg" rows="1" placeholder="吃了什麼、運動或提問"></textarea>
+      <button class="roundbtn send" id="sendBtn" data-act="send" aria-label="送出"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    </div>
+  </div>
+  <input type="file" id="photoInput" accept="image/*" hidden>
+  <input type="file" id="labelInput" accept="image/*" hidden>
+</div>
+
+<div class="wiz" id="wizard" hidden></div>
+<button class="jump hide" id="jump" data-act="jump"></button>
+<nav class="tabbar"><div class="wrap" id="tabbar"></div></nav>
+
+<script>
+/* ========= 資料庫 ========= */
+const DB = new Dexie('fatloss-coach');
+DB.version(1).stores({
+  kv: 'key',
+  foods: '++id, name, useCount',
+  meals: '++id, date, createdAt',
+  photos: '++id',
+  activities: '++id, date',
+  bodyLogs: '++id, date',
+  chats: '++id, date'
+});
+DB.version(2).stores({ adjustments: '++id, date, status' });
+
+const DEFAULTS = {
+  apiKey: '', model: 'gemini-flash-latest', fallbackModel: 'gemini-flash-lite-latest',
+  age: 20, height: 180, weight: 83, sex: 'male',
+  bodyNote: '四肢正常，但脂肪主要囤積在軀幹（腹部、側腰、小腹與胸部）',
+  phase: '減脂並保留肌肉',
+  activityDesc: '日行萬步（10,000 步）＋每週 1 天全身性重訓',
+  bmr: 1860, floor: 1860, tdeeMin: 2500, tdeeMax: 2600,
+  kcalMin: 2050, kcalMax: 2150, pMin: 135, pMax: 150, stepGoal: 10000,
+  startDate: '',
+  profileDone: false, q1: 'sit', q2: 'some', q3: 'normal', goal: 'cut', trainMin: 1, trainMax: 2, lastAdjustDate: ''
+};
+const PHASE = {cut:'減脂並保留肌肉', maintain:'維持體重', bulk:'增肌'};
+const PROTEIN = {cut:[1.6,1.8], maintain:[1.4,1.6], bulk:[1.6,2.0]};
+const WIZ = {
+  q1: [['sit','大部分時間坐著','上課、上班、打電動'],['stand','常常站著或走動','站櫃檯、餐飲、走路通勤'],['labor','需要出力的工作','搬貨、工地、外送']],
+  q2: [['none','幾乎沒有',''],['some','偶爾，一週 1–2 次',''],['regular','固定，一週 3 次以上','']],
+  q3: [['unknown','不知道',''],['few','很少','出門就坐車'],['normal','普通','偶爾走一段'],['many','很多','常走路或爬樓梯']],
+  goal: [['cut','減脂','減少體脂，同時保留肌肉'],['maintain','維持體重','保持現在的身材'],['bulk','增肌','增加肌肉量，體重會慢慢上升']]
+};
+const wizLabel = (k,v) => (WIZ[k].find(x=>x[0]===v)||['','—'])[1];
+const MEALS = [['breakfast','早餐'],['lunch','午餐'],['dinner','晚餐'],['snack','點心']];
+const MEAL_NAME = Object.fromEntries(MEALS);
+const ACT_NAME = {walk:'走路',weights:'重訓',run:'跑步',swim:'游泳',cycle:'騎車',ball:'球類',other:'其他運動'};
+
+let S = {...DEFAULTS};
+const state = { fold:(()=>{ try{ return JSON.parse(localStorage.getItem('fold'))||{}; }catch(_){ return {}; } })(), tab:'today', date:'', mealType:'lunch', photo:null, busy:false, trendRange:14, calMonth:'' };
+
+/* ========= 工具 ========= */
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2,'0');
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseYmd = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d); };
+const addDays = (s,n) => { const d = parseYmd(s); d.setDate(d.getDate()+n); return ymd(d); };
+const diffDays = (a,b) => Math.round((parseYmd(a)-parseYmd(b))/86400000);
+const today = () => ymd(new Date());
+const WD = '日一二三四五六';
+const dateLabel = s => { const d = parseYmd(s); return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}（${WD[d.getDay()]}）`; };
+const md2 = s => { const d = parseYmd(s); return `${d.getMonth()+1}/${d.getDate()}`; };
+const fmt = n => Math.round(Number(n)||0).toLocaleString('zh-TW');
+const num = v => { const n = parseFloat(String(v).replace(/,/g,'')); return isFinite(n) ? n : 0; };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dayNo = date => diffDays(date, S.startDate || date) + 1;
+const curWeightSync = { v: null };
+
+function toast(msg, ms=2600){
+  const t = document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(), ms);
+}
+function md(s){
+  if(!s) return '';
+  const inline = t => t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  let out='', list=false;
+  for(const l of esc(s).split(/\n/)){
+    const li = l.match(/^\s*(?:[-*•]|\d+[.)、])\s+(.*)/);
+    if(li){ if(!list){out+='<ul>';list=true;} out+=`<li>${inline(li[1])}</li>`; continue; }
+    if(list){ out+='</ul>'; list=false; }
+    const h = l.match(/^\s*#{1,6}\s*(.*)/);
+    if(h){ out+=`<p class="md-h">${inline(h[1])}</p>`; continue; }
+    if(l.trim()) out+=`<p>${inline(l)}</p>`;
+  }
+  if(list) out+='</ul>';
+  return out;
+}
+function defaultMealType(){
+  const h = new Date().getHours() + new Date().getMinutes()/60;
+  if(h >= 4 && h < 10.5) return 'breakfast';
+  if(h >= 10.5 && h < 15) return 'lunch';
+  if(h >= 17 && h < 21.5) return 'dinner';
+  return 'snack';
+}
+const sumItems = items => items.reduce((a,i)=>({kcal:a.kcal+num(i.kcal),protein:a.protein+num(i.protein),carb:a.carb+num(i.carb),fat:a.fat+num(i.fat)}),{kcal:0,protein:0,carb:0,fat:0});
+const sumMeals = meals => sumItems(meals.flatMap(m=>m.items||[]));
+
+const ICON = {
+  today:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 8.5 8.5"/><path d="M12 8v4l2.5 2"/></svg>',
+  cal:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  trend:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M5 15l4-4 3 3 6-7"/></svg>',
+  food:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11h17a8.5 8.5 0 0 1-17 0z"/><path d="M8 7c0-1.5 1-1.5 1-3M12 7c0-1.5 1-1.5 1-3M16 7c0-1.5 1-1.5 1-3"/></svg>',
+  set:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
+  left:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  right:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
+  bowl:'<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11h17a8.5 8.5 0 0 1-17 0z"/></svg>'
+};
+const EYE_OPEN = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg>';
+document.addEventListener('click', e=>{
+  const b = e.target.closest('[data-eye]'); if(!b) return;
+  const i = document.getElementById(b.dataset.eye); if(!i) return;
+  const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.innerHTML = show ? EYE_OFF : EYE_OPEN;
+});
+const TABS = [['today','今日',ICON.today],['cal','紀錄',ICON.cal],['trend','趨勢',ICON.trend],['foods','食品庫',ICON.food],['settings','設定',ICON.set]];
+
+/* ========= 設定 ========= */
+async function loadSettings(){
+  const r = await DB.kv.get('settings');
+  S = {...DEFAULTS, ...(r ? r.value : {})};
+  if(!S.startDate){ S.startDate = today(); await saveSettings(); }
+}
+async function saveSettings(){ await DB.kv.put({key:'settings', value:S}); }
+async function seed(){
+  const r = await DB.kv.get('seeded');
+  if(r) return;
+  await DB.foods.add({name:'紅牛聰勁乳清蛋白', brand:'紅牛', servingDesc:'1 平匙（25 g）', kcal:109.8, protein:18, carb:1.4, fat:1.3, sodium:118, useCount:0, createdAt:Date.now()});
+  await DB.kv.put({key:'seeded', value:true});
+}
+async function latestWeight(){
+  const logs = await DB.bodyLogs.orderBy('date').reverse().limit(1).toArray();
+  return logs[0] ? logs[0].weight : S.weight;
+}
+
+/* ========= 目標計算 ========= */
+const r50 = v => Math.round(v/50)*50;
+const r5 = v => Math.round(v/5)*5;
+const trainTxt = (a,b) => a===b ? `${a} 次` : `${a}–${b} 次`;
+const mifflin = (w,h,a,sex) => Math.round(10*w + 6.25*h - 5*a + (sex==='female' ? -161 : 5));
+function activityFactor(d){
+  return ({sit:1.2, stand:1.35, labor:1.5}[d.q1]||1.2) + ({none:0, some:0.1, regular:0.2}[d.q2]||0) + ({unknown:0.025, few:0, normal:0.075, many:0.125}[d.q3]||0);
+}
+function computeTargets(d){
+  const bmr = mifflin(num(d.weight), num(d.height), num(d.age), d.sex);
+  const tdee = Math.round(bmr * activityFactor(d));
+  const center = d.goal==='cut' ? tdee-450 : d.goal==='bulk' ? tdee+250 : tdee;
+  let kcalMin = r50(center-50); const minAllowed = Math.ceil(bmr/50)*50;
+  if(kcalMin < minAllowed) kcalMin = minAllowed;
+  const pr = PROTEIN[d.goal] || PROTEIN.cut;
+  const score = ({sit:0,stand:1,labor:2}[d.q1]||0) + ({none:0,some:1,regular:2}[d.q2]||0) + ({unknown:0,few:0,normal:1,many:2}[d.q3]||0);
+  const stepGoal = score <= 0 ? 6000 : score === 1 ? 8000 : 10000;
+  const [trainMin, trainMax] = d.q2==='regular' ? [2,3] : d.q2==='some' ? [1,2] : [1,1];
+  return {bmr, floor:bmr, tdeeMin:r50(tdee-50), tdeeMax:r50(tdee+50), kcalMin, kcalMax:kcalMin+100,
+    pMin:r5(num(d.weight)*pr[0]), pMax:r5(num(d.weight)*pr[1]), stepGoal, trainMin, trainMax,
+    activityDesc:`生活型態：${wizLabel('q1',d.q1)}；運動習慣：${wizLabel('q2',d.q2)}；走路量：${wizLabel('q3',d.q3)}。教練計畫：每日 ${fmt(stepGoal)} 步＋每週重訓 ${trainTxt(trainMin,trainMax)}`};
+}
+function linSlope(pts){
+  const n = pts.length, mx = pts.reduce((s,p)=>s+p[0],0)/n, my = pts.reduce((s,p)=>s+p[1],0)/n;
+  let a=0, b=0; for(const [x,y] of pts){ a += (x-mx)*(y-my); b += (x-mx)**2; }
+  return b ? a/b : 0;
+}
+async function computeStats(){
+  const t = today(), start = addDays(t,-14), end = addDays(t,-1);
+  const by = await monthTotals(start, end);
+  const days = Object.keys(by), loggedDays = days.length;
+  const avgIntake = loggedDays ? days.reduce((s,d)=>s+by[d].kcal,0)/loggedDays : 0;
+  const avgProtein = loggedDays ? days.reduce((s,d)=>s+by[d].protein,0)/loggedDays : 0;
+  const inTarget = days.filter(d=>by[d].kcal>=S.kcalMin && by[d].kcal<=S.kcalMax).length;
+  const acts = await DB.activities.where('date').between(start,end,true,true).toArray();
+  const stepBy = {}; acts.filter(a=>a.kind==='walk' && a.steps).forEach(a=>stepBy[a.date]=(stepBy[a.date]||0)+num(a.steps));
+  const sd = Object.keys(stepBy), stepDays = sd.length;
+  const avgSteps = stepDays ? sd.reduce((s,d)=>s+stepBy[d],0)/stepDays : 0;
+  const stepHit = sd.filter(d=>stepBy[d] >= S.stepGoal).length;
+  const trainPerWeek = Math.round(acts.filter(a=>a.kind==='weights').length/2*10)/10;
+  const otherSessions = acts.filter(a=>a.kind!=='walk' && a.kind!=='weights').length;
+  const wl = await DB.bodyLogs.where('date').between(addDays(t,-17), t, true, true).toArray();
+  const wBy = {}; wl.sort((a,b)=>a.createdAt-b.createdAt).forEach(x=>wBy[x.date]=x.weight);
+  const wd = Object.keys(wBy).sort();
+  let slope = null;
+  if(wd.length >= 2 && diffDays(wd[wd.length-1], wd[0]) >= 6) slope = linSlope(wd.map(d=>[diffDays(d,wd[0]), wBy[d]]));
+  const curW = await latestWeight();
+  const weeklyChange = slope==null ? null : slope*7;
+  const pctWeek = weeklyChange==null ? null : weeklyChange/curW*100;
+  const observedTdee = (slope!=null && loggedDays>=10) ? Math.round(avgIntake - slope*7700) : null;
+  return {loggedDays, avgIntake, avgProtein, inTarget, stepDays, avgSteps, stepHit, trainPerWeek, otherSessions, weightCount:wd.length, curW, weeklyChange, pctWeek, observedTdee};
+}
+function proposeAdjustment(st){
+  const R = [], w = st.curW, bmr = mifflin(w, S.height, S.age, S.sex);
+  const over = st.avgIntake > S.kcalMax + 100, under = st.avgIntake < S.kcalMin - 150;
+  const pw = st.pctWeek, ap = pw==null ? 0 : Math.abs(pw).toFixed(1);
+  let delta = 0;
+  if(pw == null) R.push('近兩週體重紀錄不足（需要相隔一週以上的兩筆），熱量目標暫不調整，只依最新體重更新基礎代謝。');
+  else if(S.goal === 'cut'){
+    if(pw <= -1){ delta = 150; R.push(`體重每週下降約 ${ap}%，超過 1% 的安全速度，提高熱量以保護肌肉。`); }
+    else if(pw <= -0.5) R.push(`體重每週下降約 ${ap}%，落在 0.5–1% 的理想範圍，熱量目標維持。`);
+    else if(over) R.push(`平均每日攝取 ${fmt(st.avgIntake)} 大卡，高於目標上限，問題在執行而不是目標，先不下修，請回到目前目標。`);
+    else if(pw <= -0.2){ delta = -100; R.push(`體重有下降但偏慢（每週約 ${ap}%），熱量目標小幅下修。`); }
+    else { delta = -150; R.push('體重兩週幾乎沒有下降，熱量目標下修。'); }
+    if(delta < 0 && under){ delta = 0; R.push('平均攝取已低於目標下限，先不下修，請吃到目標範圍。'); }
+  } else if(S.goal === 'maintain'){
+    if(pw <= -0.3){ delta = 100; R.push(`體重每週下降約 ${ap}%，提高熱量以維持體重。`); }
+    else if(pw >= 0.3 && !over){ delta = -100; R.push(`體重每週上升約 ${ap}%，小幅下修熱量。`); }
+    else R.push('體重穩定，熱量目標維持。');
+  } else {
+    if(pw > 0.5){ delta = -100; R.push(`體重每週上升約 ${ap}%，超過 0.5%，下修熱量以減少脂肪堆積。`); }
+    else if(pw < 0.15 && !under){ delta = 150; R.push('體重上升不明顯，提高熱量以支持增肌。'); }
+    else if(pw < 0.15) R.push('平均攝取低於目標，先吃到目前目標再評估。');
+    else R.push(`體重每週上升約 ${ap}%，落在理想範圍，熱量目標維持。`);
+  }
+  let kcalMin = r50(S.kcalMin + delta);
+  const minAllowed = Math.ceil(bmr/50)*50;
+  if(kcalMin < minAllowed){ kcalMin = minAllowed; R.push(`目標下限不得低於基礎代謝 ${fmt(bmr)} 大卡，已自動拉回。`); }
+  kcalMin = Math.max(S.kcalMin-150, Math.min(S.kcalMin+150, kcalMin));
+  if(kcalMin < minAllowed) kcalMin = minAllowed;
+  const kcalMax = kcalMin + Math.max(100, S.kcalMax - S.kcalMin);
+  let tdeeMin = S.tdeeMin, tdeeMax = S.tdeeMax;
+  if(st.observedTdee && st.observedTdee > bmr){ tdeeMin = r50(st.observedTdee-50); tdeeMax = r50(st.observedTdee+50); R.push(`依兩週攝取與體重變化推估，實際每日消耗約 ${fmt(st.observedTdee)} 大卡（若有漏記餐點，此值會偏低）。`); }
+  const pr = PROTEIN[S.goal] || PROTEIN.cut;
+  const pMin = r5(w*pr[0]), pMax = r5(w*pr[1]);
+  let stepGoal = S.stepGoal;
+  if(st.stepDays >= 7){
+    const rate = st.stepHit / st.stepDays;
+    if(rate >= 0.7 && stepGoal < 10000){ stepGoal = Math.min(10000, stepGoal + (st.avgSteps >= stepGoal+1500 ? 2000 : 1000)); R.push(`步數達標率 ${Math.round(rate*100)}%，步數目標提高到 ${fmt(stepGoal)} 步。`); }
+    else if(rate < 0.4) R.push(`步數達標率只有 ${Math.round(rate*100)}%，步數目標先維持，請優先做到目前目標。`);
+  } else R.push('步數回報少於 7 天，步數目標維持，記得每天睡前回報步數。');
+  let trainMin = S.trainMin, trainMax = S.trainMax;
+  if(st.trainPerWeek >= trainMax && trainMax < 3 && stepGoal >= 10000){ trainMin = Math.min(3,trainMin+1); trainMax = Math.min(3,trainMax+1); R.push(`重訓穩定達成，計畫調整為每週 ${trainTxt(trainMin,trainMax)}。`); }
+  else if(st.trainPerWeek < trainMin) R.push(`近兩週平均每週重訓 ${st.trainPerWeek} 次，未達計畫的 ${trainMin} 次。`);
+  const activityDesc = `近兩週實際：平均每日 ${st.stepDays ? fmt(st.avgSteps)+' 步' : '步數未回報'}、每週重訓約 ${st.trainPerWeek} 次${st.otherSessions?`、其他運動 ${st.otherSessions} 次`:''}。教練計畫：每日 ${fmt(stepGoal)} 步＋每週重訓 ${trainTxt(trainMin,trainMax)}`;
+  const keys = ['weight','bmr','floor','tdeeMin','tdeeMax','kcalMin','kcalMax','pMin','pMax','stepGoal','trainMin','trainMax','activityDesc'];
+  const from = Object.fromEntries(keys.map(k=>[k,S[k]]));
+  const to = {weight:w, bmr, floor:bmr, tdeeMin, tdeeMax, kcalMin, kcalMax, pMin, pMax, stepGoal, trainMin, trainMax, activityDesc};
+  return {from, to, reasons:R};
+}
+let adjBusy = false;
+async function createAdjustment(){
+  if(adjBusy) return; adjBusy = true;
+  try{
+    const st = await computeStats();
+    const pr = proposeAdjustment(st);
+    const old = await DB.adjustments.where('status').equals('pending').toArray();
+    await DB.adjustments.bulkDelete(old.map(a=>a.id));
+    const id = await DB.adjustments.add({date:today(), status:'pending', stats:st, ...pr, comment:'', createdAt:Date.now()});
+    render();
+    if(S.apiKey){
+      try{
+        const lines = [
+          `近兩週（不含今天）飲食紀錄 ${st.loggedDays} 天，平均每日 ${fmt(st.avgIntake)} kcal、蛋白質 ${fmt(st.avgProtein)} g，熱量達標 ${st.inTarget} 天`,
+          `步數回報 ${st.stepDays} 天，平均 ${fmt(st.avgSteps)} 步，達標 ${st.stepHit} 天；每週重訓約 ${st.trainPerWeek} 次；其他運動 ${st.otherSessions} 次`,
+          `體重：目前 ${st.curW} kg，${st.weeklyChange==null?'紀錄不足無法判斷趨勢':`每週變化約 ${st.weeklyChange.toFixed(2)} kg（${st.pctWeek.toFixed(1)}%）`}`,
+          `APP 依規則產生的調整：目標熱量 ${pr.from.kcalMin}–${pr.from.kcalMax} → ${pr.to.kcalMin}–${pr.to.kcalMax}；蛋白質 ${pr.from.pMin}–${pr.from.pMax} → ${pr.to.pMin}–${pr.to.pMax} g；步數 ${pr.from.stepGoal} → ${pr.to.stepGoal}；重訓每週 ${trainTxt(pr.from.trainMin,pr.from.trainMax)} → ${trainTxt(pr.to.trainMin,pr.to.trainMax)}`,
+          `調整原因：${pr.reasons.join(' ')}`
+        ].join('\n');
+        const r = await callGemini([{text:`【兩週回顧資料】\n${lines}\n\n【學員訊息】\n請寫給學員的兩週回顧，type 為 "question"，answer 包含：「**兩週表現**」（做得好與需要改進的地方）、「**這次調整**」（用白話說明為什麼這樣調，數字以 APP 的調整為準，不可自行更改）、「**接下來兩週重點**」（2–3 點具體行動）。總長 200 字內。`}], await systemPrompt());
+        await DB.adjustments.update(id, {comment: r.answer || r.comment || ''});
+        render();
+      }catch(e){ /* AI 說明失敗時仍保留規則說明 */ }
+    }
+  } finally { adjBusy = false; }
+}
+async function adjustmentCard(){
+  const isToday = state.date === today();
+  if(!isToday || !S.profileDone) return '';
+  const pending = (await DB.adjustments.where('status').equals('pending').toArray())[0];
+  if(!pending){
+    const due = S.lastAdjustDate && diffDays(today(), S.lastAdjustDate) >= 14;
+    if(!due) return '';
+    const st = await computeStats();
+    if(st.loggedDays < 10) return `<div class="notice info">已滿兩週，但近兩週飲食紀錄只有 ${st.loggedDays} 天（需要 10 天），記滿後教練會給調整建議。</div>`;
+    createAdjustment();
+    return `<div class="card thinking"><span class="dots"><span></span><span></span><span></span></span>教練正在整理兩週回顧…</div>`;
+  }
+  const f = pending.from, t = pending.to;
+  const row = (label, a, b) => `<tr class="${a!==b?'chg':''}"><td>${label}</td><td class="muted num">${a}</td><td class="num">${b}</td></tr>`;
+  return `<section class="card adj">
+    <div class="between"><b>教練兩週調整建議</b><span class="small muted">${md2(pending.date)}</span></div>
+    <table>
+      <tr><td class="small muted">項目</td><td class="small muted">目前</td><td class="small muted">建議</td></tr>
+      ${row('體重', f.weight+' kg', t.weight+' kg')}
+      ${row('每日目標熱量', `${fmt(f.kcalMin)}–${fmt(f.kcalMax)}`, `${fmt(t.kcalMin)}–${fmt(t.kcalMax)}`)}
+      ${row('安全底線', fmt(f.floor), fmt(t.floor))}
+      ${row('每日消耗估計', `${fmt(f.tdeeMin)}–${fmt(f.tdeeMax)}`, `${fmt(t.tdeeMin)}–${fmt(t.tdeeMax)}`)}
+      ${row('蛋白質 g', `${f.pMin}–${f.pMax}`, `${t.pMin}–${t.pMax}`)}
+      ${row('每日步數', fmt(f.stepGoal), fmt(t.stepGoal))}
+      ${row('每週重訓', trainTxt(f.trainMin,f.trainMax), trainTxt(t.trainMin,t.trainMax))}
+    </table>
+    ${pending.comment ? `<div class="md">${md(pending.comment)}</div>` : `<ul>${pending.reasons.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>`}
+    ${pending.comment ? `<details class="small"><summary class="muted">調整依據</summary><ul>${pending.reasons.map(r=>`<li>${esc(r)}</li>`).join('')}</ul></details>` : ''}
+    <div class="btns" style="margin-top:12px"><button class="btn ghost" data-act="adjSkip" data-id="${pending.id}" style="flex:1">暫不調整</button><button class="btn" data-act="adjApply" data-id="${pending.id}" style="flex:2">套用建議</button></div>
+  </section>`;
+}
+
+/* ========= 設定精靈 ========= */
+const WSTEPS = ['welcome','basic','q1','q2','q3','goal','body','key','confirm'];
+let W = null;
+function openWizard(){
+  W = {step:0, d:{sex:S.sex, age:S.age, height:S.height, weight:S.weight, q1:S.q1, q2:S.q2, q3:S.q3, goal:S.goal, bodyNote:S.bodyNote || DEFAULTS.bodyNote, apiKey:''}};
+  renderWizard();
+}
+function renderWizard(){
+  const el = $('#wizard'); el.hidden = false; document.body.style.overflow = 'hidden';
+  const step = WSTEPS[W.step], d = W.d;
+  const opts = k => WIZ[k].map(([v,b,sp])=>`<button class="opt ${d[k]===v?'on':''}" data-w-opt="${k}" data-v="${v}"><b>${b}</b>${sp?`<span>${sp}</span>`:''}</button>`).join('');
+  let body = '';
+  if(step==='welcome') body = `<h2>歡迎使用減脂追蹤</h2><p class="lead">回答幾個簡單問題，APP 會幫你算好每天該吃多少、該動多少。之後每兩週教練會依你的實際表現自動提出調整建議。</p><p class="lead">你只需要做三件事：</p><div class="card"><div class="kv"><span>每餐拍照或用文字告訴教練吃了什麼</span></div><div class="kv"><span>睡前說一聲今天走了幾步、做了什麼運動</span></div><div class="kv"><span>每週量一次體重</span></div></div>`;
+  if(step==='basic') body = `<h2>基本資料</h2><p class="lead">用來計算你一天的基本消耗。</p>
+    <div class="seg" style="margin-bottom:6px">${[['male','男'],['female','女']].map(([v,n])=>`<button class="${d.sex===v?'on':''}" data-w-opt="sex" data-v="${v}">${n}</button>`).join('')}</div>
+    <label class="field"><span>年齡</span><input class="in num" data-w-in="age" inputmode="numeric" value="${esc(d.age)}"></label>
+    <label class="field"><span>身高（公分）</span><input class="in num" data-w-in="height" inputmode="decimal" value="${esc(d.height)}"></label>
+    <label class="field"><span>體重（公斤）</span><input class="in num" data-w-in="weight" inputmode="decimal" value="${esc(d.weight)}"></label>`;
+  if(step==='q1') body = `<h2>你平常一天大多在做什麼？</h2><p class="lead">選最接近的一個就好。</p>${opts('q1')}`;
+  if(step==='q2') body = `<h2>你現在有在運動嗎？</h2><p class="lead">重訓、跑步、打球、游泳都算。</p>${opts('q2')}`;
+  if(step==='q3') body = `<h2>你一天大概走多少路？</h2><p class="lead">不確定的話選「不知道」。</p>${opts('q3')}`;
+  if(step==='goal') body = `<h2>你的目標是什麼？</h2><p class="lead">之後可以在設定裡更改。</p>${opts('goal')}`;
+  if(step==='body') body = `<h2>身材上有想特別改善的地方嗎？</h2><p class="lead">可以跳過。寫下來教練給建議時會更貼近你。</p>
+    <textarea class="in" data-w-in="bodyNote" rows="4" placeholder="例如：肚子和側腰比較多肉，手腳正常">${esc(d.bodyNote)}</textarea>`;
+  if(step==='key') body = `<h2>連接 AI 教練</h2><p class="lead">拍照算熱量和教練點評需要一組免費的 Google Gemini 金鑰。可以先跳過，之後在設定裡補上。</p>
+    <div class="card onboard"><ol><li>用 Google 帳號開啟 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio 金鑰頁面</a></li><li>按「Create API key」，複製產生的金鑰</li><li>貼到下方欄位</li></ol>
+    <div class="keybox"><input class="in" id="w-key" data-w-in="apiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(d.apiKey)}"><button type="button" class="eye" data-eye="w-key" aria-label="顯示或隱藏金鑰">${EYE_OPEN}</button></div></div>`;
+  if(step==='confirm'){
+    const t = computeTargets(d);
+    body = `<h2>你的每日計畫</h2><p class="lead">依你的回答算出來的，之後每兩週教練會依實際表現調整。</p>
+    <div class="card">
+      <div class="kv"><span>每天吃多少<small>${PHASE[d.goal]}的目標範圍</small></span><b class="num">${fmt(t.kcalMin)}–${fmt(t.kcalMax)} 大卡</b></div>
+      <div class="kv"><span>最少要吃<small>安全底線，吃太少容易掉肌肉、復胖</small></span><b class="num">${fmt(t.floor)} 大卡</b></div>
+      <div class="kv"><span>蛋白質<small>保留肌肉的關鍵</small></span><b class="num">${t.pMin}–${t.pMax} 克</b></div>
+      <div class="kv"><span>每天走路<small>做到後會逐步提高</small></span><b class="num">${fmt(t.stepGoal)} 步</b></div>
+      <div class="kv"><span>每週重訓</span><b class="num">${trainTxt(t.trainMin,t.trainMax)}</b></div>
+      <div class="kv"><span>身體一天的消耗<small>估計值，教練會依實際體重變化校正</small></span><b class="num">${fmt(t.tdeeMin)}–${fmt(t.tdeeMax)} 大卡</b></div>
+    </div>`;
+  }
+  const last = W.step === WSTEPS.length-1;
+  const skip = step==='body' || step==='key';
+  el.innerHTML = `<div class="wrap"><div class="prog"><span style="width:${W.step/(WSTEPS.length-1)*100}%"></span></div>${body}
+    <div class="wiz-nav"><button class="btn ghost" data-w="back" style="flex:1;${W.step===0?'display:none':''}">上一步</button>
+    <button class="btn" data-w="${last?'finish':'next'}" style="flex:2">${W.step===0?'開始':last?'開始使用':skip&&!d[step==='body'?'bodyNote':'apiKey']?'跳過':'下一步'}</button></div></div>`;
+  el.scrollTop = 0;
+}
+function wizValid(){
+  const d = W.d, step = WSTEPS[W.step];
+  if(step==='basic'){
+    const a=num(d.age), h=num(d.height), w=num(d.weight);
+    if(!(a>=12 && a<=90)){ toast('請輸入正確年齡'); return false; }
+    if(!(h>=120 && h<=230)){ toast('請輸入正確身高'); return false; }
+    if(!(w>=30 && w<=250)){ toast('請輸入正確體重'); return false; }
+  }
+  return true;
+}
+async function finishWizard(){
+  const d = W.d, t = computeTargets(d);
+  S = {...S, sex:d.sex, age:num(d.age), height:num(d.height), weight:num(d.weight), q1:d.q1, q2:d.q2, q3:d.q3, goal:d.goal,
+    bodyNote:(d.bodyNote||'').trim(), apiKey:(d.apiKey||'').trim() || S.apiKey, phase:PHASE[d.goal], ...t, profileDone:true, lastAdjustDate:today()};
+  delete S.bmrUnused;
+  await saveSettings();
+  const has = await DB.bodyLogs.where('date').equals(today()).count();
+  if(!has) await DB.bodyLogs.add({date:today(), weight:S.weight, createdAt:Date.now()});
+  W = null; $('#wizard').hidden = true; $('#wizard').innerHTML = ''; document.body.style.overflow = '';
+  state.tab = 'today'; state.date = today(); render();
+  toast('設定完成，開始記錄吧');
+  if(S.apiKey) autoPickModels(S.apiKey).catch(()=>{});
+}
+document.getElementById('wizard').addEventListener('click', e=>{
+  if(!W) return;
+  const o = e.target.closest('[data-w-opt]');
+  if(o){ W.d[o.dataset.wOpt] = o.dataset.v; renderWizard(); return; }
+  const n = e.target.closest('[data-w]'); if(!n) return;
+  if(n.dataset.w==='back'){ W.step--; renderWizard(); }
+  else if(n.dataset.w==='next'){ if(wizValid()){ W.step++; renderWizard(); } }
+  else if(n.dataset.w==='finish') finishWizard();
+});
+document.getElementById('wizard').addEventListener('input', e=>{
+  const i = e.target.closest('[data-w-in]'); if(!i || !W) return;
+  W.d[i.dataset.wIn] = i.value;
+  const btn = document.querySelector('#wizard [data-w="next"]');
+  const step = WSTEPS[W.step];
+  if(btn && (step==='body' || step==='key')) btn.textContent = i.value.trim() ? '下一步' : '跳過';
+});
+
+/* ========= 照片 ========= */
+const photoURL = new Map();
+async function photoSrc(id){
+  if(!id) return '';
+  if(photoURL.has(id)) return photoURL.get(id);
+  const p = await DB.photos.get(id); if(!p) return '';
+  const u = URL.createObjectURL(p.blob); photoURL.set(id,u); return u;
+}
+async function hydratePhotos(root=document){
+  for(const img of root.querySelectorAll('img[data-photo]')){
+    const u = await photoSrc(Number(img.dataset.photo)); if(u) img.src = u;
+  }
+}
+async function prepPhoto(file, max=1024){
+  const url = URL.createObjectURL(file);
+  const img = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('無法讀取這張照片')); i.src=url; });
+  let w = img.naturalWidth, h = img.naturalHeight; const sc = Math.min(1, max/Math.max(w,h));
+  w = Math.round(w*sc); h = Math.round(h*sc);
+  const c = document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+  URL.revokeObjectURL(url);
+  const blob = await new Promise(r=>c.toBlob(r,'image/jpeg',0.8));
+  const base64 = c.toDataURL('image/jpeg',0.8).split(',')[1];
+  return {blob, base64, preview:URL.createObjectURL(blob)};
+}
+
+/* ========= Gemini ========= */
+const cleanModel = m => String(m||'').trim().replace(/^models\//,'');
+function friendlyError(e){
+  if(e && e.timeout) return 'Gemini 超過 45 秒沒有回應。請到設定頁改選「★ 推薦」模型，或稍後再試。';
+  const m = (e && e.message) || '';
+  if(e && e.status === 429) return '已達 Gemini 免費額度上限，請稍後再試，或明天再使用。';
+  if(/API key not valid|API_KEY_INVALID/i.test(m)) return 'API 金鑰無效，請到設定重新貼上。';
+  if(e && e.status === 403) return '金鑰沒有權限，或所在地區不支援免費方案。';
+  if(e && e.status === 404) return '找不到指定模型，請到設定按「取得可用模型」重新選擇。';
+  if(/Failed to fetch|NetworkError|Load failed/i.test(m)) return '網路連線失敗，請確認手機有網路。';
+  return '呼叫 Gemini 失敗：' + m;
+}
+function parseJSON(txt){
+  let t = txt.trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+  try { return JSON.parse(t); } catch(_) {}
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if(a >= 0 && b > a){ try { return JSON.parse(t.slice(a,b+1)); } catch(_) {} }
+  throw new Error('模型回傳格式無法解析');
+}
+async function fetchT(url, opts={}, ms=45000){
+  const c = new AbortController(); const timer = setTimeout(()=>c.abort(), ms);
+  try{ return await fetch(url, {...opts, signal:c.signal}); }
+  catch(e){ if(e.name === 'AbortError'){ const err = new Error('TIMEOUT'); err.timeout = true; throw err; } throw e; }
+  finally{ clearTimeout(timer); }
+}
+function classifyModels(list){
+  const items = list.filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>{
+    const id = cleanModel(m.name), l = id.toLowerCase();
+    const ver = parseFloat((l.match(/(\d+(?:\.\d+)?)/)||[])[1]||0);
+    let tag = '不建議', rank = 4;
+    if(/image|tts|audio|live|embed|robotics|computer|veo|imagen|lyria|aqa|nano/.test(l)){ tag='不適用'; rank=5; }
+    else if(/gemma/.test(l)){ tag='開源模型，不建議'; rank=4; }
+    else if(/pro/.test(l)){ tag='可能需付費'; rank=4; }
+    else if(/preview|exp/.test(l)){ tag='預覽版，可能不穩定'; rank=3; }
+    else if(/latest/.test(l)){ tag='自動指向最新版，可能不穩定'; rank=3; }
+    else if(/flash-lite/.test(l)){ tag='速度快、準確度較低'; rank=2; }
+    else if(/flash/.test(l)){ tag='正式版'; rank=1; }
+    return {id, tag, rank, ver};
+  }).sort((a,b)=>a.rank-b.rank || b.ver-a.ver || a.id.length-b.id.length);
+  const rec = items.find(i=>i.rank===1) || items.find(i=>i.rank===3 && /flash/.test(i.id) && !/lite/.test(i.id));
+  const recLite = items.find(i=>i.rank===2) || items.find(i=>i.rank===3 && /flash-lite/.test(i.id));
+  if(rec) rec.tag = '★ 推薦'; if(recLite) recLite.tag = '★ 推薦備用';
+  return {items, rec: rec && rec.id, recLite: recLite && recLite.id};
+}
+async function fetchModels(key){
+  const res = await fetchT(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`, {}, 20000);
+  const j = await res.json().catch(()=>({}));
+  if(!res.ok) throw Object.assign(new Error((j.error && j.error.message) || res.statusText), {status:res.status});
+  return classifyModels(j.models || []);
+}
+async function autoPickModels(key){
+  const r = await fetchModels(key);
+  if(!S.modelManual && r.rec){ S.model = r.rec; S.fallbackModel = r.recLite || ''; await saveSettings(); }
+  return r;
+}
+async function fillModelSelects(){
+  const keyEl = $('#s-apiKey'), info = $('#modelInfo'); if(!keyEl || !info) return;
+  const key = keyEl.value.trim();
+  if(!key){ info.textContent = '輸入金鑰後會自動列出可用模型。'; return; }
+  info.textContent = '偵測可用模型中…';
+  try{
+    if(key !== S.apiKey){ S.apiKey = key; await saveSettings(); }
+    const r = await autoPickModels(key);
+    const opts = cur => (r.items.some(i=>i.id===cur) || !cur ? '' : `<option value="${esc(cur)}" selected>${esc(cur)}（不在可用清單中）</option>`)
+      + r.items.map(i=>`<option value="${esc(i.id)}" ${i.id===cur?'selected':''}>${esc(i.id)}（${i.tag}）</option>`).join('');
+    $('#s-model').innerHTML = opts(S.model);
+    $('#s-fallbackModel').innerHTML = `<option value="" ${S.fallbackModel?'':'selected'}>不使用</option>` + opts(S.fallbackModel);
+    info.textContent = `偵測到 ${r.items.length} 個可用模型，已預設選擇「★ 推薦」。`;
+  }catch(e){ info.textContent = friendlyError(e); }
+}
+
+const THINK_OK = {};  // 記住每個模型可用的思考設定
+function thinkOptions(m){
+  const v = (m.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1], ver = v ? parseFloat(v) : 0;
+  if(ver >= 3) return [{thinkingLevel:'minimal'}, {thinkingLevel:'low'}, null];
+  if(ver >= 2.5 && /flash/.test(m)) return [{thinkingBudget:0}, null];
+  return [null];
+}
+async function callGemini(parts, sys, temperature=0.4){
+  if(!S.apiKey) throw new Error('NO_KEY');
+  const models = [S.model, S.fallbackModel].map(cleanModel).filter((m,i,a)=>m && a.indexOf(m)===i);
+  let lastErr;
+  for(const m of models){
+    try{
+      const tries = (m in THINK_OK) ? [THINK_OK[m]] : thinkOptions(m);
+      let j, ok = false, err;
+      for(const tc of tries){
+        const gc = {responseMimeType:'application/json', temperature};
+        if(tc) gc.thinkingConfig = tc;
+        const res = await fetchT(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(S.apiKey)}`,{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:'user', parts}], generationConfig:gc })
+        });
+        j = await res.json().catch(()=>({}));
+        if(res.ok){ THINK_OK[m] = tc; ok = true; break; }
+        err = new Error((j.error && j.error.message) || res.statusText); err.status = res.status;
+        if(!(res.status === 400 && tc)) throw err;  // 只有模型不支援該思考設定時才換下一種
+      }
+      if(!ok) throw err;
+      const txt = ((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [])
+        .filter(p => p.text && !p.thought).map(p => p.text).join('');
+      if(!txt) throw new Error(j.promptFeedback && j.promptFeedback.blockReason ? '內容被模型拒絕（'+j.promptFeedback.blockReason+'）' : '模型沒有回傳內容');
+      return parseJSON(txt);
+    }catch(e){
+      lastErr = e;
+      if(!(e.timeout || e.status === 429 || e.status === 404 || e.status >= 500)) break;
+    }
+  }
+  throw new Error(friendlyError(lastErr));
+}
+
+async function systemPrompt(){
+  const w = await latestWeight();
+  const foods = await DB.foods.orderBy('useCount').reverse().limit(30).toArray();
+  const foodLines = foods.length ? foods.map(f=>`- ${f.name}${f.brand?`（${f.brand}）`:''}：${f.servingDesc||'1 份'} = ${f.kcal} kcal、蛋白質 ${f.protein} g、碳水 ${f.carb} g、脂肪 ${f.fat} g${f.sodium?`、鈉 ${f.sodium} mg`:''}`).join('\n') : '（尚未建立）';
+  const sex = S.sex === 'female' ? '女性' : '男性';
+  return `# 角色與任務設定
+你是一位專業、敏銳且風格接地氣的個人減脂教練與營養分析助手。你的學員是一位 ${S.age} 歲、身高 ${S.height} 公分、目前體重約 ${w} 公斤的${sex}。${S.bodyNote ? S.bodyNote + '。' : ''}目前正處於「${S.phase}」的飲食控制階段。
+
+# 基本基準
+- 基礎代謝率（BMR）：約 ${fmt(S.bmr)} kcal（每日最低安全攝取底線 ${fmt(S.floor)} kcal，不可低於此數值）
+- 活動量設定：${S.activityDesc}
+- 每日總能量消耗（TDEE）：約 ${fmt(S.tdeeMin)} – ${fmt(S.tdeeMax)} kcal
+- 每日目標攝取熱量：${fmt(S.kcalMin)} – ${fmt(S.kcalMax)} kcal
+- 每日蛋白質目標：${S.pMin} – ${S.pMax} g
+- 教練活動計畫：每日 ${fmt(S.stepGoal)} 步＋每週重訓 ${trainTxt(S.trainMin,S.trainMax)}（逐步提高中，鼓勵學員做到）
+- 運動消耗不加回可攝取額度（TDEE 已包含日常活動），運動紀錄只作為點評參考。
+
+# 學員常用食品（每份營養值，辨識或計算時看到這些品項請直接採用）
+${foodLines}
+
+# 回覆原則與風格守則
+1. 嚴格遵守能量守恆與防禦反撲：絕不可為了補救高熱量外食而建議極端低卡菜單（全天總熱量嚴禁排至低於 ${fmt(S.floor)} kcal）。
+2. 口吻真實、親切有督促感：像身邊懂重訓與營養的朋友，說話直爽、就事論事，表現好時給予肯定，踩到垃圾熱量或高精緻糖雷區時直接指出問題。
+3. 繁體中文（台灣），使用台灣日常飲食用語（如：便當、乾麵、茶葉蛋、大燕麥片、全家/超商、乳清蛋白）。
+4. 共鍋（如薑母鴨）或傳統麵攤外食，需特別注意隱形油脂（豬油、肉燥、麻油）與精緻澱粉的吸油情況，並反映在熱量估算中。
+5. 份量以台灣常見份量估算，熱量取整數，蛋白質、碳水、脂肪取整數克。
+6. 今日累計、剩餘額度與步數由 APP 計算後提供給你，請直接引用，不要自行另外推算。
+
+# 輸出格式
+只輸出一個 JSON 物件，不要有其他文字：
+{
+  "type": "meal" 或 "exercise" 或 "question",
+  "mealType": "breakfast" 或 "lunch" 或 "dinner" 或 "snack" 或 null,
+  "date": "YYYY-MM-DD 或 null（學員明確提到其他日期時才填，例如「昨天」「10/20」，依 APP 提供的今天日期換算；沒提到填 null）",
+  "weights": [ { "date": "YYYY-MM-DD", "kg": 0 } ],
+  "items": [ { "name": "食物名稱", "amount": "份量描述", "kcal": 0, "protein": 0, "carb": 0, "fat": 0 } ],
+  "activities": [ { "kind": "walk|weights|run|swim|cycle|ball|other", "label": "簡短描述", "steps": null, "durationMin": null, "kcalBurned": 0 } ],
+  "comment": "教練點評（Markdown）",
+  "answer": "回答內容（Markdown）"
+}
+規則：
+- 餐點照片或描述吃了什麼 → type 為 "meal"，items 逐項拆解。comment 依序包含三段：「**點評**」（這餐的優缺點）、「**下一餐建議**」（依這餐加入後的剩餘熱量與蛋白質缺口，具體指示下一餐或睡前吃什麼，同時避免熱量或鈉爆表）、「**步數提醒**」（今日尚未記錄步數或未達標時提醒睡前確認）。
+- 描述運動或步數 → type 為 "exercise"，activities 逐項列出，kcalBurned 採保守估計，步數寫在 steps。comment 簡短點評並提醒飲食配合（例如練後補蛋白質）。
+- 提問 → type 為 "question"，answer 直接回答，需要時引用學員的紀錄。
+- 同一則訊息同時有餐點與運動 → type 為 "meal"，items 與 activities 都要填。
+- 學員回報體重 → weights 填入（日期依學員所說，沒說就用 APP 提供的記錄日期），type 依其他內容判斷，沒有其他內容就用 "question"，answer 簡短回應。
+- 不適用的欄位給空陣列或空字串。comment 與 answer 各控制在 250 字以內，用短段落或列點。
+- 照片不是食物或無法辨識 → type 為 "question"，items 為空陣列，answer 說明原因並請學員補充文字描述。`;
+}
+
+async function buildContext(date, mealType, includeMealLine=true){
+  const d = await dayData(date);
+  const t = d.t;
+  const w = await latestWeight();
+  const lines = [];
+  lines.push(`今天實際日期：${today()}（${WD[new Date().getDay()]}）`);
+  lines.push(`記錄日期：${dateLabel(date)}　減脂 Day ${dayNo(date)}`);
+  if(date === today()){ const n = new Date(); lines.push(`目前時間：${pad(n.getHours())}:${pad(n.getMinutes())}`); }
+  else if(date > today()) lines.push('（此為學員預先記錄的未來日期，還沒到那一天；點評請以事先規劃的角度說明，不要說「今天還剩多少」）');
+  else lines.push('（此為補記，非今天）');
+  if(includeMealLine) lines.push('餐別：依學員訊息判斷（早餐、午餐、晚餐、點心）；學員沒有提到就填 null，不要用時間猜測');
+  lines.push('今日已記錄餐點：' + (d.meals.length ? '' : '無'));
+  for(const m of d.meals){ const s = sumItems(m.items); lines.push(`- ${MEAL_NAME[m.mealType]}：${m.items.map(i=>i.name).join('、')}（${fmt(s.kcal)} kcal，蛋白質 ${fmt(s.protein)} g）`); }
+  lines.push(`今日累計：熱量 ${fmt(t.kcal)} kcal、蛋白質 ${fmt(t.protein)} g、碳水 ${fmt(t.carb)} g、脂肪 ${fmt(t.fat)} g`);
+  lines.push(`目標剩餘：熱量還可吃 ${fmt(S.kcalMin-t.kcal)} – ${fmt(S.kcalMax-t.kcal)} kcal（安全底線還差 ${fmt(Math.max(0,S.floor-t.kcal))} kcal）；蛋白質還差 ${fmt(Math.max(0,S.pMin-t.protein))} – ${fmt(Math.max(0,S.pMax-t.protein))} g`);
+  lines.push(`今日步數：${d.steps ? fmt(d.steps) : '尚未記錄'}（目標 ${fmt(S.stepGoal)}）`);
+  const other = d.acts.filter(a=>!(a.kind==='walk' && a.steps));
+  lines.push('今日運動：' + (other.length ? other.map(a=>`${a.label||ACT_NAME[a.kind]}${a.durationMin?` ${a.durationMin} 分鐘`:''}`).join('、') : '無'));
+  lines.push(`目前體重：${w} kg`);
+  // 近 7 日
+  const from = addDays(date,-7), to = addDays(date,-1);
+  const ms = await DB.meals.where('date').between(from,to,true,true).toArray();
+  const by = {};
+  for(const m of ms){ const s = sumItems(m.items); by[m.date] = by[m.date] || {kcal:0,protein:0}; by[m.date].kcal += s.kcal; by[m.date].protein += s.protein; }
+  const days = Object.keys(by).sort();
+  lines.push('近 7 日每日攝取：' + (days.length ? days.map(k=>`${md2(k)} ${fmt(by[k].kcal)} kcal／蛋白質 ${fmt(by[k].protein)} g`).join('；') : '無紀錄'));
+  const wl = await DB.bodyLogs.where('date').between(addDays(date,-14),date,true,true).toArray();
+  if(wl.length) lines.push('近期體重：' + wl.sort((a,b)=>a.date<b.date?-1:1).map(x=>`${md2(x.date)} ${x.weight} kg`).join('；'));
+  return lines.join('\n');
+}
+
+/* ========= 資料讀取 ========= */
+async function dayData(date){
+  const meals = (await DB.meals.where('date').equals(date).toArray()).sort((a,b)=>a.createdAt-b.createdAt);
+  const acts = (await DB.activities.where('date').equals(date).toArray()).sort((a,b)=>a.createdAt-b.createdAt);
+  const chats = (await DB.chats.where('date').equals(date).toArray()).sort((a,b)=>a.createdAt-b.createdAt);
+  const body = (await DB.bodyLogs.where('date').equals(date).toArray()).sort((a,b)=>b.createdAt-a.createdAt)[0];
+  const steps = acts.filter(a=>a.kind==='walk' && a.steps).reduce((s,a)=>s+num(a.steps),0);
+  return {meals, acts, chats, body, steps, t: sumMeals(meals)};
+}
+function kcalStatus(k, inProgress){
+  if(k <= 0) return {cls:'none', label:'尚未記錄'};
+  if(k > S.tdeeMax) return {cls:'bad', label:'超過消耗'};
+  if(k > S.kcalMax) return {cls:'warn', label:'超過目標'};
+  if(k >= S.kcalMin) return {cls:'good', label:'達標'};
+  if(inProgress) return {cls:'info', label:'進行中'};
+  if(k < S.floor) return {cls:'bad', label:'低於底線'};
+  return {cls:'info', label:'略低於目標'};
+}
+async function saveSteps(date, steps, label){
+  const old = await DB.activities.where('date').equals(date).toArray();
+  await DB.activities.bulkDelete(old.filter(a=>a.kind==='walk' && a.steps).map(a=>a.id));
+  const w = await latestWeight();
+  await DB.activities.add({date, kind:'walk', label: label || '走路', steps, durationMin:null, kcalBurned: Math.round(steps*0.0005*w), createdAt:Date.now()});
+}
+
+/* ========= 畫面：上方列與分頁 ========= */
+function renderTop(){
+  const el = $('#topInner');
+  if(state.tab === 'today'){
+    if(!el.querySelector('#wkStrip')){
+      el.style.display = 'block'; el.style.height = 'auto'; el.style.gridTemplateColumns = '';
+      el.innerHTML = `<div class="wkhead"><button class="mon num" id="wkMonth" data-act="openCal"></button><div class="row" style="gap:4px"><button class="chip-btn" data-act="goToday">今天</button><button class="iconbtn" data-act="openCal" aria-label="月曆">${ICON.cal}</button></div></div><div class="wkstrip" id="wkStrip"></div>`;
+      $('#wkStrip').addEventListener('scroll', ()=>requestAnimationFrame(()=>{ updateMonthLabel(); extendStrip($('#wkStrip')); }), {passive:true});
+      enableMouseScroll($('#wkStrip'));
+    }
+    renderStrip();
+  } else {
+    el.style.display = ''; el.style.gridTemplateColumns = ''; el.style.height = '';
+    const name = TABS.find(t=>t[0]===state.tab)[1];
+    el.innerHTML = `<h1>${name}</h1>`;
+  }
+  $('#tabbar').innerHTML = TABS.map(([k,n,ic])=>`<button class="${state.tab===k?'on':''}" data-act="tab" data-tab="${k}">${ic}<span>${n}</span></button>`).join('');
+  $('#composer').classList.toggle('hidden', state.tab !== 'today');
+  updateComposeHeight();
+}
+const sundayOf = d => addDays(d, -parseYmd(d).getDay());
+const STRIP_CHUNK = 91;      // 每次補 13 週
+const STRIP_TRIGGER = 28;    // 距離盡頭 4 週時補日期
+function dayCell(d){
+  const dt = parseYmd(d);
+  return `<button class="wkday" data-act="pickDay" data-d="${d}"><span class="w">${WD[dt.getDay()]}</span><span class="n num">${dt.getDate()}</span><i class="dot"></i></button>`;
+}
+function cellsHtml(a, b){ let h = ''; for(let d=a; d<=b; d=addDays(d,1)) h += dayCell(d); return h; }
+async function paintStrip(strip){
+  const t = today(), by = await monthTotals(strip.dataset.start, strip.dataset.end);
+  for(const b of strip.querySelectorAll('.wkday')){
+    const d = b.dataset.d, o = by[d];
+    b.className = 'wkday' + (d===state.date?' sel':'') + (d===t?' today':'') + (d>t?' future':'');
+    b.lastElementChild.className = 'dot ' + (o ? kcalStatus(o.kcal, d>=t).cls : '');
+  }
+}
+async function renderStrip(){
+  const strip = $('#wkStrip'); if(!strip) return;
+  if(!strip.dataset.start || state.date < strip.dataset.start || state.date > strip.dataset.end){
+    const start = sundayOf(addDays(state.date,-120)), end = addDays(sundayOf(addDays(state.date,120)),6);
+    strip.innerHTML = '<div class="wkspace"></div>' + cellsHtml(start,end) + '<div class="wkspace"></div>';
+    strip.dataset.start = start; strip.dataset.end = end; state.stripFor = '';
+  }
+  await paintStrip(strip);
+  if(state.stripFor !== state.date){
+    const first = !state.stripFor, cw = strip.clientWidth/8;
+    strip.scrollTo({left: diffDays(sundayOf(state.date), strip.dataset.start)*cw, behavior: first ? 'auto' : 'smooth'});
+    state.stripFor = state.date;
+  }
+  updateMonthLabel();
+}
+let stripExtending = false;
+async function extendStrip(strip){
+  if(stripExtending || !strip.dataset.start) return;
+  const cw = strip.clientWidth/8; if(!cw) return;
+  const nearLeft = strip.scrollLeft < cw*STRIP_TRIGGER;
+  const nearRight = strip.scrollWidth - strip.clientWidth - strip.scrollLeft < cw*STRIP_TRIGGER;
+  if(!nearLeft && !nearRight) return;
+  stripExtending = true;
+  try{
+    if(nearRight){
+      const a = addDays(strip.dataset.end,1), b = addDays(strip.dataset.end,STRIP_CHUNK);
+      strip.lastElementChild.insertAdjacentHTML('beforebegin', cellsHtml(a,b));
+      strip.dataset.end = b;
+    }
+    if(nearLeft){
+      const b = addDays(strip.dataset.start,-1), a = addDays(strip.dataset.start,-STRIP_CHUNK);
+      const before = strip.scrollLeft;
+      strip.firstElementChild.insertAdjacentHTML('afterend', cellsHtml(a,b));
+      strip.dataset.start = a;
+      strip.scrollLeft = before + STRIP_CHUNK*cw;   // 補在前面時修正位置，畫面不跳動
+      strip.dispatchEvent(new CustomEvent('stripshift', {detail: STRIP_CHUNK*cw}));
+    }
+    await paintStrip(strip);
+  } finally { stripExtending = false; }
+}
+function enableMouseScroll(strip){
+  const cw = () => strip.clientWidth/8;
+  let down = false, moved = false, x0 = 0, left0 = 0, lastWheel = 0;
+  strip.addEventListener('pointerdown', e=>{
+    if(e.pointerType !== 'mouse' || e.button !== 0) return;
+    down = true; moved = false; x0 = e.clientX; left0 = strip.scrollLeft;
+    strip.style.scrollSnapType = 'none'; strip.style.cursor = 'grabbing';
+  });
+  window.addEventListener('pointermove', e=>{
+    if(!down) return;
+    const dx = e.clientX - x0;
+    if(Math.abs(dx) > 5) moved = true;
+    strip.scrollLeft = left0 - dx;
+  });
+  window.addEventListener('pointerup', ()=>{
+    if(!down) return; down = false; strip.style.cursor = '';
+    strip.scrollTo({left: Math.round(strip.scrollLeft/cw())*cw(), behavior:'smooth'});
+    setTimeout(()=>{ strip.style.scrollSnapType = ''; }, 400);
+  });
+  strip.addEventListener('stripshift', e=>{ left0 += e.detail; });
+  strip.addEventListener('click', e=>{ if(moved){ e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
+  strip.addEventListener('wheel', e=>{
+    if(Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;  // 觸控板左右滑動交給瀏覽器
+    e.preventDefault();
+    const now = Date.now(); if(now - lastWheel < 120) return; lastWheel = now;
+    strip.scrollBy({left: Math.sign(e.deltaY)*cw(), behavior:'smooth'});
+  }, {passive:false});
+}
+function updateMonthLabel(){
+  const strip = $('#wkStrip'), lab = $('#wkMonth'); if(!strip || !lab || !strip.dataset.start) return;
+  const cw = strip.clientWidth/8; if(!cw) return;
+  const idx = Math.max(0, Math.floor((strip.scrollLeft + strip.clientWidth/2 - cw/2)/cw));
+  const d = parseYmd(addDays(strip.dataset.start, idx));
+  lab.textContent = `${d.getFullYear()} 年 ${d.getMonth()+1} 月`;
+  state.viewMonth = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+}
+function goDate(d){ state.date = d; state.stripFor = 'jump'; state.tab = 'today'; window.scrollTo(0,0); render(); }
+function calCells(y, m, by, onlySel){
+  const days = new Date(y,m,0).getDate(), firstWd = new Date(y,m-1,1).getDay(), t = today();
+  let cells = WD.split('').map(w=>`<div class="wd">${w}</div>`).join('') + '<div class="blank"></div>'.repeat(firstWd);
+  for(let d=1; d<=days; d++){
+    const ds = `${y}-${pad(m)}-${pad(d)}`, o = by[ds];
+    const st = o ? kcalStatus(o.kcal, ds>=t) : {cls:''};
+    cells += `<button class="${st.cls||''} ${ds===t?'today':''} ${ds>t?'future':''} ${onlySel && ds===state.date?'sel':''}" data-cal="${ds}">${d}<small class="num">${o?fmt(o.kcal):''}</small></button>`;
+  }
+  cells += '<div class="blank"></div>'.repeat(42 - firstWd - days);  // 固定 6 列，視窗高度不變
+  return cells;
+}
+function openCalSheet(){
+  let cur = state.viewMonth || state.date.slice(0,7);
+  const sh = openSheet(`<div class="between" style="margin-bottom:8px"><button class="iconbtn" id="cs-prev" aria-label="上個月">${ICON.left}</button><b id="cs-title" style="font-size:18px"></b><button class="iconbtn" id="cs-next" aria-label="下個月">${ICON.right}</button></div>
+    <div class="cal" id="cs-grid"></div>
+    <div class="legend" style="margin:12px 4px"><span><i style="background:var(--accent-soft)"></i>達標</span><span><i style="background:var(--info-soft)"></i>略低／進行中</span><span><i style="background:var(--warn-soft)"></i>超過目標</span><span><i style="background:var(--bad-soft)"></i>低於底線或超過消耗</span></div>
+    <button class="btn" id="cs-today">回到今天</button>`);
+  const draw = async () => {
+    const [y,m] = cur.split('-').map(Number), days = new Date(y,m,0).getDate();
+    const by = await monthTotals(`${cur}-01`, `${cur}-${pad(days)}`);
+    sh.querySelector('#cs-title').textContent = `${y} 年 ${m} 月`;
+    sh.querySelector('#cs-grid').innerHTML = calCells(y, m, by, true);
+  };
+  const shift = n => { const [y,m] = cur.split('-').map(Number), d = new Date(y, m-1+n, 1); cur = `${d.getFullYear()}-${pad(d.getMonth()+1)}`; draw(); };
+  sh.querySelector('#cs-prev').onclick = () => shift(-1);
+  sh.querySelector('#cs-next').onclick = () => shift(1);
+  sh.querySelector('#cs-grid').addEventListener('click', e=>{ const b = e.target.closest('[data-cal]'); if(!b) return; closeSheet(); goDate(b.dataset.cal); });
+  sh.querySelector('#cs-today').onclick = () => { closeSheet(); goDate(today()); };
+  draw();
+}
+
+function renderMealSeg(){
+  const isToday = state.date === today();
+  const seg = $('#mealseg');
+  seg.innerHTML = isToday ? '' : `<span class="hint" style="margin-left:0">記錄到 ${md2(state.date)}</span>`;
+  seg.style.display = isToday ? 'none' : '';
+  const p = $('#preview');
+  if(state.photo){ p.hidden=false; p.innerHTML = `<img src="${state.photo.preview}" alt=""><span class="small muted">已附照片，可再加文字說明</span><button class="xbtn" data-act="clearPhoto" aria-label="移除照片">×</button>`; }
+  else { p.hidden=true; p.innerHTML=''; }
+  $('#sendBtn').disabled = state.busy;
+}
+function updateComposeHeight(){
+  const c = $('#composer');
+  document.body.style.setProperty('--compose-h', c.classList.contains('hidden') ? '0px' : c.offsetHeight + 'px');
+}
+
+async function render(){
+  renderTop();
+  const v = $('#view');
+  if(state.tab === 'today') await renderToday(v);
+  else if(state.tab === 'cal') await renderCal(v);
+  else if(state.tab === 'trend') await renderTrend(v);
+  else if(state.tab === 'foods') await renderFoods(v);
+  else if(state.tab === 'settings') renderSettings(v);
+  hydratePhotos(v);
+  updateJump();
+}
+
+/* ========= 今日 ========= */
+async function renderToday(v){
+  renderMealSeg();
+  const date = state.date, isToday = date === today();
+  const d = await dayData(date);
+  const k = d.t.kcal, p = d.t.protein;
+  const notPast = date >= today();
+  const st = kcalStatus(k, notPast);
+  const scale = Math.max(S.tdeeMax, k) * 1.06;
+  const pc = x => Math.min(100, x/scale*100);
+  let remain = '', remainCls = '';
+  if(k < S.kcalMin){
+    remain = `還可吃 <span class="num">${fmt(S.kcalMin-k)}–${fmt(S.kcalMax-k)}</span> 大卡`;
+    if(!notPast && k < S.floor && k > 0){ remain = `全天低於安全底線 ${fmt(S.floor-k)} 大卡`; remainCls='bad'; }
+  } else if(k <= S.kcalMax) remain = '已在目標範圍內，今天可以收工';
+  else { remain = `超出目標 <span class="num">${fmt(k-S.kcalMax)}</span> 大卡`; remainCls='bad'; }
+  const floorNote = (notPast && k > 0 && k < S.floor) ? `<div class="subnote">至少還要吃 ${fmt(S.floor-k)} 大卡才達安全底線</div>` : '';
+  const pNote = p < S.pMin ? `還差 ${fmt(S.pMin-p)}–${fmt(S.pMax-p)} g` : (p <= S.pMax ? '已達標' : '超過上限');
+
+  let html = await adjustmentCard();
+  if(date > today()) html += `<div class="notice info" style="margin-top:12px">這是未來日期（${md2(date)}），記錄的內容會算在那一天</div>`;
+  if(isToday && S.profileDone){
+    const lastW = (await DB.bodyLogs.orderBy('date').reverse().limit(1).toArray())[0];
+    const gap = lastW ? diffDays(today(), lastW.date) : null;
+    if(gap == null || gap >= 7) html += `<div class="notice">${gap==null?'還沒有體重紀錄':`已經 ${gap} 天沒量體重`}，量完按上方「＋ 體重」或體重數字更新，也可以直接告訴教練</div>`;
+  }
+  if(!S.apiKey){
+    html += `<div class="card onboard"><b>第一次使用</b><p class="small muted" style="margin:6px 0">拍照辨識與教練點評需要 Gemini API 金鑰。常用食品紀錄、步數與體重不需要金鑰也能使用。</p><button class="btn sm" data-act="tab" data-tab="settings">前往設定金鑰</button></div>`;
+  }
+  html += `<section class="card">
+    <div class="between" style="align-items:flex-start"><div class="row" style="flex-wrap:wrap;gap:4px 10px;min-height:28px"><span class="eyebrow">減脂 Day ${dayNo(date)}</span>${await weightChip(date)}</div><span class="pill ${st.cls}">${st.label}</span></div>
+    <div class="big num" style="margin-top:6px">${fmt(k)}<small>/ ${fmt(S.kcalMin)}–${fmt(S.kcalMax)} 大卡</small></div>
+    <div class="meter"><div class="band" style="left:${pc(S.kcalMin)}%;width:${pc(S.kcalMax)-pc(S.kcalMin)}%"></div>
+      <div class="fill ${st.cls==='good'||st.cls==='none'?'':st.cls}" style="width:${pc(k)}%"></div>
+      <div class="floor" style="left:${pc(S.floor)}%"></div></div>
+    <div class="legend"><span><i style="background:var(--accent-soft);border:1px solid var(--accent)"></i>目標 ${fmt(S.kcalMin)}–${fmt(S.kcalMax)}</span><span><i style="border-left:2px dashed var(--bad);border-radius:0;width:2px"></i>安全底線 ${fmt(S.floor)}</span></div>
+    <div class="remain ${remainCls}">${remain}</div>${floorNote}
+    <div class="macros">
+      <div class="macro"><div class="lbl">蛋白質</div><div class="val num">${fmt(p)}<small> / ${S.pMin}–${S.pMax} g</small></div>
+        <div class="minibar"><span style="width:${Math.min(100,p/S.pMax*100)}%"></span></div><div class="subnote">${pNote}</div></div>
+      <div class="macro"><div class="lbl">碳水</div><div class="val num">${fmt(d.t.carb)}<small> g</small></div></div>
+      <div class="macro"><div class="lbl">脂肪</div><div class="val num">${fmt(d.t.fat)}<small> g</small></div></div>
+    </div>
+  </section>`;
+
+  // 餐點
+  html += foldHead('meals', '餐點', d.meals.length ? `（${d.meals.length} 筆，${fmt(k)} 大卡）` : '', 'addMeal') + `<div class="coll ${state.fold.meals?'closed':''}" data-coll="meals"><div>`;
+  if(!d.meals.length) html += `<div class="empty">還沒有餐點紀錄<br>拍照、輸入文字，或按右上「＋ 新增」</div>`;
+  for(const [mk] of MEALS){
+    for(const m of d.meals.filter(x=>x.mealType===mk)){
+      const s = sumItems(m.items);
+      html += `<div class="meal"><div class="meal-main">
+        ${m.photoId?`<img class="thumb" data-photo="${m.photoId}" alt="">`:`<div class="thumb ph">${ICON.bowl}</div>`}
+        <div style="min-width:0;flex:1"><div class="meal-title"><span class="typebadge">${MEAL_NAME[m.mealType]}</span><span class="num">${fmt(s.kcal)} 大卡</span><span class="muted small num"> · 蛋白質 ${fmt(s.protein)} g</span></div>
+        <div class="meal-items">${esc(m.items.map(i=>i.name).join('、')||'（無品項）')}</div></div>
+        <button class="btn ghost sm" data-act="editMeal" data-id="${m.id}" style="flex:none">編輯</button></div>
+      </div>`;
+    }
+  }
+  html += `</div></div>`;
+
+  // 運動
+  const walk = d.acts.find(a=>a.kind==='walk' && a.steps);
+  const others = d.acts.filter(a=>!(a.kind==='walk' && a.steps));
+  html += foldHead('acts', '運動', d.acts.length ? `（${d.acts.length} 筆）` : '', 'addAct') + `<div class="coll ${state.fold.acts?'closed':''}" data-coll="acts"><div><section class="card" style="padding:4px 16px">`;
+  html += `<div class="act"><div style="flex:1;min-width:0"><b>走路</b> <span class="num">${d.steps?fmt(d.steps):'—'}</span><span class="muted num"> / ${fmt(S.stepGoal)} 步</span>
+    <div class="minibar" style="margin:6px 0 4px"><span style="width:${Math.min(100,d.steps/S.stepGoal*100)}%;background:${d.steps>=S.stepGoal?'var(--accent)':'var(--info)'}"></span></div>
+    <div class="small muted">${!d.steps?'尚未記錄':d.steps>=S.stepGoal?'已達標':`還差 ${fmt(S.stepGoal-d.steps)} 步`}${walk?` · 估計消耗約 ${fmt(walk.kcalBurned)} 大卡`:''}</div></div>
+    <button class="btn ghost sm" data-act="editAct" ${walk?`data-id="${walk.id}"`:'data-kind="walk"'} style="flex:none">編輯</button></div>`;
+  for(const a of others){
+    html += `<div class="act"><div style="flex:1;min-width:0"><b>${ACT_NAME[a.kind]||'運動'}</b> <span class="muted">${esc(a.label||'')}${a.durationMin?`${a.label?' · ':''}${a.durationMin} 分鐘`:''}${a.intensity?` · ${INTENSITY[a.intensity]||''}`:''}</span><div class="small muted">估計消耗約 ${fmt(a.kcalBurned)} 大卡（不加回額度）</div></div><button class="btn ghost sm" data-act="editAct" data-id="${a.id}" style="flex:none">編輯</button></div>`;
+  }
+  html += `</section></div></div>`;
+
+  // 對話
+  if(d.chats.length || state.pendingQ || state.lastError){
+    html += foldHead('chats', '教練對話', d.chats.length ? `（${d.chats.length} 則）` : '') + `<div class="coll ${state.fold.chats?'closed':''}" data-coll="chats"><div>`;
+    for(const c of d.chats){
+      html += `<div class="bubble q">${c.photoId?`<img data-photo="${c.photoId}" alt="" style="display:block;width:160px;max-width:100%;border-radius:10px;${c.q?'margin-bottom:6px':''}">`:''}${esc(c.q)}</div><div class="bubble a"><div class="md">${md(c.a)}</div></div>`;
+    }
+    if(state.pendingQ) html += `<div class="bubble q">${state.pendingImg?`<img src="${state.pendingImg}" alt="" style="display:block;width:160px;max-width:100%;border-radius:10px;${state.pendingQ.trim()?'margin-bottom:6px':''}">`:''}${esc(state.pendingQ.trim())}</div><div class="bubble a thinking"><span class="dots"><span></span><span></span><span></span></span>教練正在思考…</div>`;
+    if(state.lastError) html += `<div class="bubble a" style="border:1.5px solid var(--bad)"><b style="color:var(--bad)">沒有成功</b><p style="margin:4px 0 0">${esc(state.lastError)}</p></div>`;
+    html += `</div></div><div id="chatEnd"></div>`;
+  }
+  v.innerHTML = html;
+}
+function foldHead(k, title, sum, addAct){
+  return `<div class="sec-head ${state.fold[k]?'closed':''}" data-head="${k}"><button class="sh-t" data-act="fold" data-k="${k}">${title}<span class="sum">${sum}</span></button>${addAct?`<button class="addbtn" data-act="${addAct}">＋ 新增</button>`:''}<button class="chev" data-act="fold" data-k="${k}" aria-label="展開或收合"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></div>`;
+}
+const INTENSITY = {easy:'輕鬆', moderate:'中等', hard:'高強度'};
+const MET = {weights:[3.5,5,6], run:[6,8.3,11], swim:[5,7,9.8], cycle:[4,6.8,10], ball:[4.5,6.5,8], other:[3,4.5,6]};
+async function weightAt(date){
+  const list = await DB.bodyLogs.where('date').belowOrEqual(date).toArray();
+  list.sort((a,b)=> a.date===b.date ? b.createdAt-a.createdAt : (a.date<b.date?1:-1));
+  const cur = list[0]; if(!cur) return {cur:null, prev:null};
+  const prev = list.find(x=>x.date < cur.date) || null;
+  return {cur, prev};
+}
+async function weightChip(date){
+  const {cur, prev} = await weightAt(date);
+  if(!cur) return `<button class="addbtn" data-act="editWeight">＋ 體重</button>`;
+  let diff = '';
+  if(prev){
+    const dv = Math.round((cur.weight - prev.weight)*10)/10;
+    const good = S.goal==='bulk' ? dv>0 : dv<0;
+    const cls = dv===0 || S.goal==='maintain' ? 'flat' : (good ? 'down' : 'up');
+    diff = `<span class="${cls} num">較 ${md2(prev.date)} ${dv>0?'+':dv<0?'−':'±'}${Math.abs(dv).toFixed(1)} kg</span>`;
+  }
+  return `<button class="wt" data-act="editWeight"><span class="muted">•</span><b class="num">${cur.weight} kg</b>${cur.date!==date?`<span class="muted num">（${md2(cur.date)} 量）</span>`:''}${diff}</button>`;
+}
+async function saveWeight(date, w){
+  const old = await DB.bodyLogs.where('date').equals(date).toArray();
+  await DB.bodyLogs.bulkDelete(old.map(x=>x.id));
+  await DB.bodyLogs.add({date, weight:Math.round(w*10)/10, createdAt:Date.now()});
+}
+async function openWeightEditor(date){
+  const {cur} = await weightAt(date);
+  const init = cur ? cur.weight : '';
+  const sh = openSheet(`<h2>體重</h2>
+    <label class="field"><span>體重（公斤）</span><input class="in num" id="wt-in" inputmode="decimal" value="${init}" placeholder="例如 82.5" style="font-size:22px;text-align:center"></label>
+    <label class="field"><span>測量日期</span><input class="in" id="wt-date" type="date" value="${date}"></label>
+    <p class="small muted" id="wt-hint" style="margin:4px 2px"></p>
+    <div class="btns" style="margin-top:10px"><button class="btn ghost" id="wt-left" style="flex:1">取消</button><button class="btn" id="wt-ok" style="flex:2">儲存</button></div>`);
+  const inp = sh.querySelector('#wt-in'), dt = sh.querySelector('#wt-date'), left = sh.querySelector('#wt-left'), hint = sh.querySelector('#wt-hint');
+  let existing = null;
+  const check = async () => {
+    existing = dt.value ? (await DB.bodyLogs.where('date').equals(dt.value).toArray())[0] : null;
+    left.textContent = existing ? '刪除這天' : '取消';
+    left.className = existing ? 'btn danger' : 'btn ghost';
+    hint.textContent = existing ? `${md2(dt.value)} 已記錄 ${existing.weight} kg，儲存會覆蓋。` : (cur ? `已帶入最近一次（${md2(cur.date)}）的體重，數字沒改就不會新增紀錄。` : '');
+  };
+  dt.addEventListener('change', check); check();
+  left.onclick = async () => {
+    if(!existing){ closeSheet(); return; }
+    if(!confirm(`刪除 ${md2(dt.value)} 的體重紀錄？`)) return;
+    await DB.bodyLogs.where('date').equals(dt.value).delete(); closeSheet(); toast('已刪除'); render();
+  };
+  sh.querySelector('#wt-ok').onclick = async () => {
+    const w = num(inp.value);
+    if(!(w > 30 && w < 250)){ toast('請輸入正確體重'); return; }
+    if(!dt.value){ toast('請選擇測量日期'); return; }
+    if(cur && w === cur.weight && !existing){ closeSheet(); toast('體重沒有變動，未新增紀錄'); return; }
+    await saveWeight(dt.value, w); closeSheet(); toast(`已記錄 ${md2(dt.value)} ${Math.round(w*10)/10} kg`); render();
+  };
+}
+function estimateBurn(kind, minutes, intensity, w){
+  if(kind === 'walk') return 0;
+  const m = (MET[kind] || MET.other)[intensity==='easy'?0:intensity==='hard'?2:1];
+  return Math.round(m * w * minutes/60);
+}
+async function openActEditor(act, presetKind){
+  const date = state.date, w = await latestWeight();
+  let kind = act ? act.kind : (presetKind || 'weights');
+  let intensity = (act && act.intensity) || 'moderate';
+  let manualKcal = !!act && kind !== 'walk';
+  const sh = openSheet(`<div class="between"><h2>${act?'編輯運動':'新增運動'}</h2><span class="small muted">${md2(date)}</span></div>
+    <div class="chips" id="ae-kind"></div>
+    <div id="ae-walk">
+      <label class="field"><span>今日總步數</span><input class="in num" id="ae-steps" inputmode="numeric" value="${act&&act.steps?act.steps:''}" placeholder="例如 9500" style="font-size:20px;text-align:center"></label>
+      <p class="small muted" style="margin:0 2px">輸入當天的總步數，會取代原本的步數紀錄。</p>
+    </div>
+    <div id="ae-other">
+      <label class="field"><span>說明（可留空）</span><input class="in" id="ae-label" value="${esc(act&&act.kind!=='walk'?act.label||'':'')}" placeholder="例如：練腿、慢跑河堤"></label>
+      <div class="grid2"><label class="field"><span>時間（分鐘）</span><input class="in num" id="ae-min" inputmode="numeric" value="${act&&act.durationMin?act.durationMin:''}" placeholder="60"></label>
+      <label class="field"><span>估計消耗（大卡）</span><input class="in num" id="ae-kcal" inputmode="numeric" value="${act&&act.kind!=='walk'?Math.round(act.kcalBurned||0):''}"></label></div>
+      <div class="field"><span class="small muted" style="font-weight:600">強度</span><div class="seg" id="ae-int" style="margin-top:4px"></div></div>
+      <p class="small muted" style="margin:0 2px">消耗依類型、時間、強度與體重自動估算，可直接修改；不加回可攝取額度。</p>
+    </div>
+    <div class="btns" style="margin-top:14px"><button class="btn ${act?'danger':'ghost'}" id="ae-left" style="flex:1">${act?'刪除':'取消'}</button><button class="btn" id="ae-ok" style="flex:2">儲存</button></div>`);
+  const $s = q => sh.querySelector(q);
+  const recalc = () => { if(kind!=='walk' && !manualKcal){ const m = num($s('#ae-min').value); $s('#ae-kcal').value = m ? estimateBurn(kind, m, intensity, w) : ''; } };
+  const draw = () => {
+    $s('#ae-kind').innerHTML = Object.entries(ACT_NAME).map(([k,n])=>`<button class="${kind===k?'on':''}" data-k="${k}">${n}</button>`).join('');
+    $s('#ae-int').innerHTML = Object.entries(INTENSITY).map(([k,n])=>`<button class="${intensity===k?'on':''}" data-k="${k}">${n}</button>`).join('');
+    $s('#ae-walk').hidden = kind !== 'walk'; $s('#ae-other').hidden = kind === 'walk';
+  };
+  draw();
+  $s('#ae-kind').addEventListener('click', e=>{ const b = e.target.closest('[data-k]'); if(!b) return; kind = b.dataset.k; manualKcal = false; draw(); recalc(); });
+  $s('#ae-int').addEventListener('click', e=>{ const b = e.target.closest('[data-k]'); if(!b) return; intensity = b.dataset.k; manualKcal = false; draw(); recalc(); });
+  $s('#ae-min').addEventListener('input', recalc);
+  $s('#ae-kcal').addEventListener('input', ()=>{ manualKcal = true; });
+  $s('#ae-left').onclick = async () => {
+    if(!act){ closeSheet(); return; }
+    if(!confirm('刪除這筆運動紀錄？')) return;
+    await DB.activities.delete(act.id); closeSheet(); toast('已刪除'); render();
+  };
+  $s('#ae-ok').onclick = async () => {
+    if(kind === 'walk'){
+      const n = Math.round(num($s('#ae-steps').value));
+      if(!(n > 0 && n < 100000)){ toast('請輸入正確步數'); return; }
+      if(act && act.kind !== 'walk') await DB.activities.delete(act.id);
+      await saveSteps(date, n);
+    } else {
+      const mins = Math.round(num($s('#ae-min').value));
+      if(!(mins > 0 && mins < 1000)){ toast('請輸入運動時間'); return; }
+      const rec = {date, kind, label:$s('#ae-label').value.trim(), steps:null, durationMin:mins, intensity, kcalBurned:Math.round(num($s('#ae-kcal').value)) || estimateBurn(kind, mins, intensity, w)};
+      if(act) await DB.activities.update(act.id, rec); else await DB.activities.add({...rec, createdAt:Date.now()});
+    }
+    closeSheet(); toast('已儲存'); render();
+  };
+}
+function saveFold(){ try{ localStorage.setItem('fold', JSON.stringify(state.fold)); }catch(_){} }
+function setFold(k, closed){
+  state.fold[k] = closed; saveFold();
+  document.querySelector(`[data-head="${k}"]`)?.classList.toggle('closed', closed);
+  document.querySelector(`[data-coll="${k}"]`)?.classList.toggle('closed', closed);
+  setTimeout(updateJump, 320);
+}
+function updateJump(){
+  const b = $('#jump'); if(!b) return;
+  if(state.tab !== 'today' || sheets.length){ b.classList.add('hide'); return; }
+  const end = $('#chatEnd');
+  const visibleBottom = innerHeight - (document.querySelector('.tabbar')?.offsetHeight||0) - ($('#composer')?.offsetHeight||0);
+  let mode = '';
+  if(end && (state.fold.chats || end.getBoundingClientRect().top > visibleBottom + 4)) mode = 'down';
+  else if(scrollY > 300) mode = 'up';
+  b.dataset.mode = mode;
+  if(mode){ b.textContent = mode==='down' ? '↓ 最新對話' : '↑ 回到頂端'; b.classList.remove('hide'); }
+  else b.classList.add('hide');
+}
+
+/* ========= 自然語言：本機判斷 ========= */
+function parseLocal(text){
+  const t = text.replace(/\s/g,'');
+  let m = t.match(/(\d[\d,]*(?:\.\d+)?)(萬|千|k|K)?步/);
+  if(m){
+    let n = num(m[1]); if(m[2]==='萬') n*=10000; if(m[2]==='千'||m[2]==='k'||m[2]==='K') n*=1000;
+    const rest = t.replace(m[0],'').replace(/今天|今日|總共|一共|共|大概|大約|約|走了|走路|走|有|步數|累積|累計|目前|現在|了|是|[，。！!~～,.：:]/g,'');
+    if(!rest && n > 0 && n < 100000) return {kind:'steps', steps:Math.round(n)};
+  }
+  m = t.match(/(\d{2,3}(?:\.\d+)?)(公斤|kg|KG|Kg)/);
+  if(m){
+    const w = num(m[1]);
+    const rest = t.replace(m[0],'').replace(/今天|今日|早上|晚上|起床|空腹|體重|量了|量|秤了|秤|測|了|是|為|約|大概|[，。！!~～,.：:]/g,'');
+    if(!rest && w > 30 && w < 250) return {kind:'weight', weight:w};
+  }
+  return null;
+}
+
+/* ========= 送出 ========= */
+async function send(){
+  if(state.busy) return;
+  const ta = $('#msg');
+  const text = ta.value.trim();
+  const photo = state.photo;
+  if(!text && !photo) return;
+  const date = state.date, mealType = state.mealType;
+
+  if(!photo){
+    const local = parseLocal(text);
+    if(local){
+      if(local.kind === 'steps'){ await saveSteps(date, local.steps); toast(`已記錄 ${fmt(local.steps)} 步`); }
+      else { await saveWeight(date, local.weight); toast(`已記錄體重 ${local.weight} kg`); }
+      ta.value=''; autoGrow(); await render(); return;
+    }
+  }
+  if(!S.apiKey){ toast('這項功能需要 Gemini API 金鑰，請先到設定輸入'); return; }
+
+  if(state.fold.chats){ state.fold.chats = false; saveFold(); }
+  state.busy = true; state.lastError = ''; state.pendingQ = text || ' '; state.pendingImg = photo ? photo.preview : ''; state.photo = null; ta.value=''; autoGrow(); await render();
+  window.scrollTo(0, document.body.scrollHeight);
+  try{
+    const ctx = await buildContext(date, mealType);
+    const parts = [];
+    if(photo) parts.push({inline_data:{mime_type:'image/jpeg', data:photo.base64}});
+    parts.push({text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n${photo?'（附上一張餐點照片）\n':''}${text?'文字：'+text:'（無文字說明）'}`});
+    const r = await callGemini(parts, await systemPrompt());
+    const items = Array.isArray(r.items) ? r.items.filter(i=>i && i.name) : [];
+    const acts = Array.isArray(r.activities) ? r.activities.filter(a=>a && (a.kind||a.label)) : [];
+    const okDate = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && Math.abs(diffDays(x, today())) <= 366;
+    const tDate = okDate(r.date) ? r.date : date;
+    for(const a of acts){
+      if(a.kind === 'walk' && num(a.steps) > 0) await saveSteps(tDate, Math.round(num(a.steps)), a.label);
+      else await DB.activities.add({date:tDate, kind: ACT_NAME[a.kind] ? a.kind : 'other', label:a.label||'', steps:a.steps?num(a.steps):null, durationMin:a.durationMin?num(a.durationMin):null, kcalBurned:num(a.kcalBurned), createdAt:Date.now()});
+    }
+    for(const wv of (Array.isArray(r.weights) ? r.weights : [])){
+      const kg = num(wv && wv.kg); if(kg > 30 && kg < 250) await saveWeight(okDate(wv.date) ? wv.date : tDate, kg);
+    }
+    state.photo = null;
+    const photoId = photo ? await DB.photos.add({blob:photo.blob}) : null;
+    if(items.length){
+      const mt = MEAL_NAME[r.mealType] ? r.mealType : defaultMealType();
+      const clean = items.map(normItem), sm = sumItems(clean);
+      const mealId = await DB.meals.add({date:tDate, mealType:mt, items:clean, photoId, comment:r.comment||'', sourceText:text, createdAt:Date.now(), updatedAt:Date.now()});
+      const head = `**已記錄：${tDate!==date?md2(tDate)+' ':''}${MEAL_NAME[mt]}** ${clean.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g（數字不對可按餐點的「編輯」修改）`;
+      await DB.chats.add({date, q:text, photoId, mealId, a: head + (r.comment ? '\n\n' + r.comment : ''), createdAt:Date.now()});
+    } else {
+      const a = r.answer || r.comment || '（沒有回覆內容）';
+      await DB.chats.add({date, q:text, photoId, a, createdAt:Date.now()});
+    }
+  }catch(e){
+    ta.value = text; autoGrow(); state.photo = photo;
+    state.lastError = e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message;
+    toast(e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message, 4200);
+  }finally{
+    state.busy = false; state.pendingQ = ''; state.pendingImg = ''; await render();
+    window.scrollTo(0, document.body.scrollHeight);
+  }
+}
+const normItem = i => ({name:String(i.name||'').trim(), amount:String(i.amount||'').trim(), kcal:Math.round(num(i.kcal)), protein:Math.round(num(i.protein)), carb:Math.round(num(i.carb)), fat:Math.round(num(i.fat)), foodId:i.foodId||null});
+
+async function review(){
+  if(!S.apiKey){ toast('請先到設定輸入 API 金鑰'); return; }
+  state.busy = true; state.lastError = ''; state.pendingQ = '今日總評'; await render();
+  window.scrollTo(0, document.body.scrollHeight);
+  try{
+    const ctx = await buildContext(state.date, null, false);
+    const r = await callGemini([{text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n請依今日全部紀錄做今日總評，type 為 "question"，answer 包含：今日整體表現（熱量與蛋白質是否達標）、做得好的地方、需要改進的地方、明天的具體建議與步數提醒。`}], await systemPrompt());
+    await DB.chats.add({date:state.date, q:'今日總評', a:r.answer||r.comment||'', createdAt:Date.now()});
+  }catch(e){ state.lastError = e.message; }
+  finally{ state.busy = false; state.pendingQ = ''; await render(); window.scrollTo(0, document.body.scrollHeight); }
+}
+
+/* ========= 底部面板 ========= */
+const sheets = [];
+function openSheet(html){
+  const bd = document.createElement('div'); bd.className='backdrop';
+  bd.innerHTML = `<div class="sheet"><div class="grab"></div>${html}</div>`;
+  bd.addEventListener('click', e=>{ if(e.target === bd) closeSheet(); });
+  document.body.appendChild(bd); sheets.push(bd);
+  document.body.style.overflow='hidden';
+  updateJump();
+  return bd.querySelector('.sheet');
+}
+function closeSheet(){
+  const bd = sheets.pop(); if(bd) bd.remove();
+  if(!sheets.length) document.body.style.overflow='';
+  updateJump();
+}
+
+/* ========= 餐點編輯 ========= */
+async function openMealEditor(opt){
+  // opt: {id?, date, mealType, items, comment, photoBlob?, photoId?, sourceText, isNew}
+  let items = opt.items.map(i=>({...i}));
+  let mealType = opt.mealType;
+  const photoSrcUrl = opt.photoBlob ? URL.createObjectURL(opt.photoBlob) : (opt.photoId ? await photoSrc(opt.photoId) : '');
+  const sh = openSheet(`<div class="between"><h2>${opt.manual?'新增餐點':opt.isNew?'確認餐點':'編輯餐點'}</h2><span class="small muted">${md2(opt.date)}</span></div>
+    ${opt.manual?`<div class="btns" style="margin-bottom:10px"><button class="btn" id="me-photo">拍照辨識</button><button class="btn ghost" id="me-pick">從常用食品選</button></div><input type="file" id="me-file" accept="image/*" hidden>`:''}
+    <div class="seg" id="me-type"></div>
+    <div id="me-photobox"></div>
+    ${photoSrcUrl?`<img src="${photoSrcUrl}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-top:12px">`:''}
+    ${opt.isNew && opt.comment?'<p class="small muted" style="margin:10px 2px 0">AI 估算值僅供參考，份量或數值不對請直接修改。</p>':''}
+    <div id="me-items"></div>
+    <div class="btns"><button class="btn ghost sm" id="me-add">＋ 空白項目</button>${opt.manual?'':'<button class="btn ghost sm" id="me-food">＋ 常用食品</button>'}</div>
+    <div class="totals num" id="me-tot"></div>
+    ${opt.comment?`<details class="comment card" style="padding:0 14px" ${opt.isNew?'open':''}><summary>教練點評</summary><div class="md">${md(opt.comment)}</div></details>`:''}
+    <div class="btns" style="margin-top:12px">${opt.isNew?'':'<button class="btn danger" id="me-del" style="flex:1">刪除</button>'}<button class="btn" id="me-save" style="flex:2">儲存</button></div>
+    ${opt.isNew?'<button class="btn ghost" id="me-cancel" style="margin-top:8px">放棄這筆</button>':''}`);
+  const sync = () => {
+    sh.querySelectorAll('.item').forEach((el,idx)=>{
+      const g = n => el.querySelector(`[data-f="${n}"]`).value;
+      items[idx] = {...items[idx], name:g('name'), amount:g('amount'), kcal:num(g('kcal')), protein:num(g('protein')), carb:num(g('carb')), fat:num(g('fat'))};
+    });
+  };
+  const drawType = () => { sh.querySelector('#me-type').innerHTML = MEALS.map(([k,n])=>`<button class="${mealType===k?'on':''}" data-k="${k}">${n}</button>`).join(''); };
+  const drawTot = () => { const s = sumItems(items); sh.querySelector('#me-tot').innerHTML = `<div><b>${fmt(s.kcal)}</b><span>大卡</span></div><div><b>${fmt(s.protein)}</b><span>蛋白質 g</span></div><div><b>${fmt(s.carb)}</b><span>碳水 g</span></div><div><b>${fmt(s.fat)}</b><span>脂肪 g</span></div>`; };
+  const draw = () => {
+    sh.querySelector('#me-items').innerHTML = items.length ? items.map((i,idx)=>`<div class="item" data-idx="${idx}">
+      <div class="item-head"><input class="in" data-f="name" value="${esc(i.name)}" placeholder="食物名稱"><button class="xbtn" data-del="${idx}" aria-label="刪除">×</button></div>
+      <input class="in amount" data-f="amount" value="${esc(i.amount)}" placeholder="份量，例如 1 個便當、半碗">
+      <div class="item-grid">
+        <label>熱量<input class="in num" data-f="kcal" inputmode="decimal" value="${i.kcal}"></label>
+        <label>蛋白質 g<input class="in num" data-f="protein" inputmode="decimal" value="${i.protein}"></label>
+        <label>碳水 g<input class="in num" data-f="carb" inputmode="decimal" value="${i.carb}"></label>
+        <label>脂肪 g<input class="in num" data-f="fat" inputmode="decimal" value="${i.fat}"></label>
+      </div>
+      ${i.foodId?'<div class="small muted" style="margin-top:4px">來自常用食品</div>':`<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn sm" data-savefood="${idx}">存為常用食品</button></div>`}
+    </div>`).join('') : '<div class="empty">尚無品項</div>';
+    drawTot();
+  };
+  drawType(); draw();
+  sh.querySelector('#me-type').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; mealType=b.dataset.k; drawType(); });
+  sh.querySelector('#me-items').addEventListener('input', ()=>{ sync(); drawTot(); });
+  sh.querySelector('#me-items').addEventListener('click', async e=>{
+    const del = e.target.closest('[data-del]');
+    if(del){ sync(); items.splice(Number(del.dataset.del),1); draw(); return; }
+    const sf = e.target.closest('[data-savefood]');
+    if(sf){ sync(); const i = items[Number(sf.dataset.savefood)]; openFoodForm({name:i.name, servingDesc:i.amount||'1 份', kcal:i.kcal, protein:i.protein, carb:i.carb, fat:i.fat}); }
+  });
+  sh.querySelector('#me-add').onclick = () => { sync(); items.push({name:'',amount:'',kcal:0,protein:0,carb:0,fat:0}); draw(); };
+  if(sh.querySelector('#me-food')) sh.querySelector('#me-food').onclick = () => { sync(); openFoodPicker(picked=>{ items.push(...picked); draw(); }); };
+  if(opt.manual){
+    sh.querySelector('#me-pick').onclick = () => { sync(); openFoodPicker(picked=>{ items.push(...picked); draw(); }); };
+    sh.querySelector('#me-photo').onclick = () => {
+      if(!S.apiKey){ toast('拍照辨識需要 API 金鑰，請先到設定輸入'); return; }
+      sh.querySelector('#me-file').click();
+    };
+    sh.querySelector('#me-file').addEventListener('change', async e=>{
+      const file = e.target.files[0]; e.target.value = ''; if(!file) return;
+      const btn = sh.querySelector('#me-photo'); btn.disabled = true; btn.textContent = '辨識中…';
+      try{
+        sync();
+        const ph = await prepPhoto(file);
+        opt.photoBlob = ph.blob;
+        sh.querySelector('#me-photobox').innerHTML = `<img src="${ph.preview}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-top:12px">`;
+        const ctx = await buildContext(opt.date, mealType);
+        const r = await callGemini([{inline_data:{mime_type:'image/jpeg', data:ph.base64}}, {text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n（附上一張餐點照片，記錄為${MEAL_NAME[mealType]}）`}], await systemPrompt());
+        const got = (Array.isArray(r.items) ? r.items.filter(i=>i && i.name) : []).map(normItem);
+        if(!got.length) toast(r.answer || '照片無法辨識，請手動輸入', 4000);
+        items.push(...got); opt.comment = r.comment || opt.comment || ''; opt.fromPhoto = got.length > 0; draw();
+      }catch(err){ toast(err.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : err.message, 4200); }
+      finally{ btn.disabled = false; btn.textContent = '拍照辨識'; }
+    });
+  }
+  sh.querySelector('#me-save').onclick = async () => {
+    sync();
+    const clean = items.filter(i=>i.name.trim()).map(normItem);
+    if(!clean.length){ toast('至少需要一個品項'); return; }
+    let photoId = opt.photoId || null;
+    if(opt.photoBlob && !photoId) photoId = await DB.photos.add({blob:opt.photoBlob});
+    const rec = {date:opt.date, mealType, items:clean, photoId, comment:opt.comment||'', sourceText:opt.sourceText||'', updatedAt:Date.now()};
+    if(opt.id) await DB.meals.update(opt.id, rec);
+    else {
+      const mealId = await DB.meals.add({...rec, createdAt:Date.now()});
+      if(opt.fromPhoto && opt.comment){
+        const sm = sumItems(clean);
+        await DB.chats.add({date:opt.date, q:'', photoId, mealId, a:`**已記錄：${MEAL_NAME[mealType]}** ${clean.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g\n\n${opt.comment}`, createdAt:Date.now()});
+      }
+      for(const i of clean) if(i.foodId){ const f = await DB.foods.get(i.foodId); if(f) await DB.foods.update(f.id,{useCount:(f.useCount||0)+1}); }
+    }
+    closeSheet(); toast('已儲存'); render();
+  };
+  const cancel = sh.querySelector('#me-cancel');
+  if(cancel) cancel.onclick = () => { if(confirm('確定放棄這筆餐點？')) closeSheet(); };
+  const del = sh.querySelector('#me-del');
+  if(del) del.onclick = async () => {
+    if(!confirm('確定刪除這筆餐點？')) return;
+    await DB.meals.delete(opt.id);
+    if(opt.photoId){ await DB.photos.delete(opt.photoId); photoURL.delete(opt.photoId); }
+    closeSheet(); toast('已刪除'); render();
+  };
+}
+
+/* ========= 常用食品選擇 ========= */
+async function openFoodPicker(onDone){
+  const foods = await DB.foods.orderBy('useCount').reverse().toArray();
+  const qty = {};
+  const sh = openSheet(`<h2>選擇常用食品</h2>
+    <input class="in" id="fp-q" placeholder="搜尋" style="margin-bottom:6px">
+    <div id="fp-list"></div>
+    <div class="totals num" id="fp-tot"></div>
+    <button class="btn" id="fp-ok">加入</button>`);
+  const draw = () => {
+    const q = sh.querySelector('#fp-q').value.trim();
+    const list = foods.filter(f=>!q || (f.name+(f.brand||'')).includes(q));
+    sh.querySelector('#fp-list').innerHTML = list.length ? list.map(f=>`<div class="foodrow"><div class="info"><div class="name">${esc(f.name)}</div><div class="small muted num">${esc(f.servingDesc||'1 份')} · ${fmt(f.kcal)} 大卡 · 蛋白質 ${fmt(f.protein)} g</div></div>
+      <div class="stepper"><button data-d="-0.5" data-id="${f.id}">−</button><input class="num" data-q="${f.id}" inputmode="decimal" value="${qty[f.id]||0}"><button data-d="0.5" data-id="${f.id}">＋</button></div></div>`).join('')
+      : `<div class="empty">${foods.length?'找不到符合的食品':'食品庫是空的，請先到「食品庫」新增'}</div>`;
+    drawTot();
+  };
+  const drawTot = () => {
+    const s = foods.reduce((a,f)=>{ const n=qty[f.id]||0; return {kcal:a.kcal+f.kcal*n, protein:a.protein+f.protein*n, carb:a.carb+f.carb*n, fat:a.fat+f.fat*n}; },{kcal:0,protein:0,carb:0,fat:0});
+    sh.querySelector('#fp-tot').innerHTML = `<div><b>${fmt(s.kcal)}</b><span>大卡</span></div><div><b>${fmt(s.protein)}</b><span>蛋白質 g</span></div><div><b>${fmt(s.carb)}</b><span>碳水 g</span></div><div><b>${fmt(s.fat)}</b><span>脂肪 g</span></div>`;
+  };
+  draw();
+  sh.querySelector('#fp-q').addEventListener('input', draw);
+  sh.querySelector('#fp-list').addEventListener('click', e=>{
+    const b = e.target.closest('[data-d]'); if(!b) return;
+    const id = Number(b.dataset.id); qty[id] = Math.max(0, (qty[id]||0) + Number(b.dataset.d));
+    sh.querySelector(`[data-q="${id}"]`).value = qty[id]; drawTot();
+  });
+  sh.querySelector('#fp-list').addEventListener('input', e=>{
+    const i = e.target.closest('[data-q]'); if(!i) return; qty[Number(i.dataset.q)] = Math.max(0,num(i.value)); drawTot();
+  });
+  sh.querySelector('#fp-ok').onclick = () => {
+    const picked = foods.filter(f=>(qty[f.id]||0) > 0).map(f=>{ const n = qty[f.id]; return {name:f.name, amount:`${n} 份（${f.servingDesc||'1 份'}）`, kcal:Math.round(f.kcal*n), protein:Math.round(f.protein*n), carb:Math.round(f.carb*n), fat:Math.round(f.fat*n), foodId:f.id}; });
+    if(!picked.length){ toast('請先調整份數'); return; }
+    closeSheet(); onDone(picked);
+  };
+}
+
+/* ========= 食品庫 ========= */
+async function renderFoods(v){
+  const foods = await DB.foods.orderBy('useCount').reverse().toArray();
+  v.innerHTML = `<p class="small muted" style="margin:12px 4px 10px">常用食品記錄時不呼叫 AI，數值精確且不耗額度。拍營養標示會呼叫一次 Gemini 讀取數值。</p>
+    ${foods.length ? foods.map(f=>`<button class="foodrow" style="width:100%;border:0;text-align:left" data-act="editFood" data-id="${f.id}"><div class="info"><div class="name">${esc(f.name)}${f.brand?` <span class="muted small">${esc(f.brand)}</span>`:''}</div>
+      <div class="small muted num">${esc(f.servingDesc||'1 份')} · ${fmt(f.kcal)} 大卡 · 蛋白質 ${f.protein} g · 碳水 ${f.carb} g · 脂肪 ${f.fat} g</div></div><span class="small muted num">${f.useCount||0} 次</span></button>`).join('')
+      : '<div class="empty">尚無常用食品</div>'}
+    <div style="height:84px"></div>
+    <div class="btns" style="position:fixed;left:0;right:0;bottom:calc(var(--tabh) + env(safe-area-inset-bottom));z-index:30;max-width:560px;margin:0 auto;padding:10px 16px;background:var(--bg);border-top:1px solid var(--line)"><button class="btn" data-act="addFood">＋ 手動新增</button><button class="btn ghost" data-act="labelScan">拍營養標示</button></div>`;
+}
+function openFoodForm(f={}){
+  const sh = openSheet(`<h2>${f.id?'編輯常用食品':'新增常用食品'}</h2>
+    <label class="field"><span>品名</span><input class="in" id="ff-name" value="${esc(f.name||'')}" placeholder="例如：桂格原味大燕麥片"></label>
+    <div class="grid2"><label class="field"><span>品牌（可留空）</span><input class="in" id="ff-brand" value="${esc(f.brand||'')}"></label>
+    <label class="field"><span>每份份量</span><input class="in" id="ff-serv" value="${esc(f.servingDesc||'')}" placeholder="例如：40 g"></label></div>
+    <div class="grid2">
+      <label class="field"><span>熱量（大卡）</span><input class="in num" id="ff-kcal" inputmode="decimal" value="${f.kcal??''}"></label>
+      <label class="field"><span>蛋白質（g）</span><input class="in num" id="ff-p" inputmode="decimal" value="${f.protein??''}"></label>
+      <label class="field"><span>碳水（g）</span><input class="in num" id="ff-c" inputmode="decimal" value="${f.carb??''}"></label>
+      <label class="field"><span>脂肪（g）</span><input class="in num" id="ff-f" inputmode="decimal" value="${f.fat??''}"></label>
+      <label class="field"><span>鈉（mg，可留空）</span><input class="in num" id="ff-na" inputmode="decimal" value="${f.sodium??''}"></label>
+    </div>
+    <div class="btns" style="margin-top:8px">${f.id?'<button class="btn danger" id="ff-del" style="flex:1">刪除</button>':''}<button class="btn" id="ff-save" style="flex:2">儲存</button></div>`);
+  sh.querySelector('#ff-save').onclick = async () => {
+    const g = id => sh.querySelector(id).value.trim();
+    const rec = {name:g('#ff-name'), brand:g('#ff-brand'), servingDesc:g('#ff-serv')||'1 份', kcal:num(g('#ff-kcal')), protein:num(g('#ff-p')), carb:num(g('#ff-c')), fat:num(g('#ff-f')), sodium:g('#ff-na')?num(g('#ff-na')):null};
+    if(!rec.name){ toast('請輸入品名'); return; }
+    if(f.id) await DB.foods.update(f.id, rec); else await DB.foods.add({...rec, useCount:0, createdAt:Date.now()});
+    closeSheet(); toast('已儲存到食品庫'); if(state.tab==='foods') render();
+  };
+  const del = sh.querySelector('#ff-del');
+  if(del) del.onclick = async () => { if(!confirm('確定從食品庫刪除？既有餐點紀錄不受影響。')) return; await DB.foods.delete(f.id); closeSheet(); render(); };
+}
+async function scanLabel(file){
+  if(!S.apiKey){ toast('拍營養標示需要 API 金鑰'); return; }
+  toast('讀取營養標示中…', 3000);
+  try{
+    const ph = await prepPhoto(file, 1600);
+    const r = await callGemini([{inline_data:{mime_type:'image/jpeg', data:ph.base64}},{text:'請讀取這張營養標示。'}],
+      `你是營養標示讀取工具。讀取照片中的食品營養標示（台灣格式），只輸出 JSON：{"name":"品名","brand":"品牌","servingDesc":"每份份量，例如 1 平匙（25 g）","kcal":0,"protein":0,"carb":0,"fat":0,"sodium":0}。以「每份」數值為準；只有每 100 公克時，servingDesc 填「100 g」。看不到的欄位填 null，不可推測。使用繁體中文。`, 0.1);
+    openFoodForm({name:r.name||'', brand:r.brand||'', servingDesc:r.servingDesc||'', kcal:r.kcal??'', protein:r.protein??'', carb:r.carb??'', fat:r.fat??'', sodium:r.sodium??''});
+  }catch(e){ toast(e.message, 4200); }
+}
+
+/* ========= 紀錄（日曆） ========= */
+async function monthTotals(a,b){
+  const ms = await DB.meals.where('date').between(a,b,true,true).toArray();
+  const by = {};
+  for(const m of ms){ const s = sumItems(m.items); const o = by[m.date] || (by[m.date]={kcal:0,protein:0}); o.kcal+=s.kcal; o.protein+=s.protein; }
+  return by;
+}
+async function renderCal(v){
+  const [y,m] = state.calMonth.split('-').map(Number);
+  const days = new Date(y,m,0).getDate(), firstWd = new Date(y,m-1,1).getDay();
+  const a = `${y}-${pad(m)}-01`, b = `${y}-${pad(m)}-${pad(days)}`;
+  const by = await monthTotals(a,b);
+  const t = today();
+  const cells = calCells(y, m, by, false).replace(/data-cal=/g, 'data-act="calDay" data-d=');
+  const logged = Object.entries(by).filter(([d])=>d!==t || true);
+  const vals = logged.map(([,o])=>o);
+  const avg = vals.length ? vals.reduce((s,o)=>s+o.kcal,0)/vals.length : 0;
+  const avgP = vals.length ? vals.reduce((s,o)=>s+o.protein,0)/vals.length : 0;
+  const hit = logged.filter(([d,o])=>d!==t && o.kcal>=S.kcalMin && o.kcal<=S.kcalMax).length;
+  v.innerHTML = `<div class="between" style="margin:10px 0"><button class="iconbtn" data-act="calPrev">${ICON.left}</button><b>${y} 年 ${m} 月</b><button class="iconbtn" data-act="calNext">${ICON.right}</button></div>
+    <div class="cal">${cells}</div>
+    <div class="legend" style="margin:12px 4px"><span><i style="background:var(--accent-soft)"></i>達標</span><span><i style="background:var(--info-soft)"></i>略低／進行中</span><span><i style="background:var(--warn-soft)"></i>超過目標</span><span><i style="background:var(--bad-soft)"></i>低於底線或超過消耗</span></div>
+    <div class="stats"><div class="stat"><span>本月記錄天數</span><b class="num">${vals.length}</b></div><div class="stat"><span>熱量達標天數</span><b class="num">${hit}</b></div>
+    <div class="stat"><span>平均熱量（大卡）</span><b class="num">${vals.length?fmt(avg):'—'}</b></div><div class="stat"><span>平均蛋白質（g）</span><b class="num">${vals.length?fmt(avgP):'—'}</b></div></div>
+    <p class="small muted" style="margin:12px 4px">點選日期可查看或補記當天紀錄。</p>`;
+}
+
+/* ========= 趨勢 ========= */
+function niceMax(v){ if(v<=0) return 10; const p = Math.pow(10, Math.floor(Math.log10(v))); return Math.ceil(v/p*2)/2*p; }
+function barChart({labels, values, band, floor, max, barCls, pbar}){
+  const W=340,H=170,pl=36,pr=6,pt=8,pb=20, iw=W-pl-pr, ih=H-pt-pb, n=values.length;
+  const top = niceMax(Math.max(max, ...values));
+  const y = v => pt + ih - (v/top)*ih, step = iw/n, bw = Math.max(3, step*0.62);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  for(const g of [0, top/2, top]) s += `<line class="grid" x1="${pl}" x2="${W-pr}" y1="${y(g)}" y2="${y(g)}"/><text class="axis" x="${pl-4}" y="${y(g)+3}" text-anchor="end">${fmt(g)}</text>`;
+  if(band) s += `<rect class="bandr" x="${pl}" width="${iw}" y="${y(band[1])}" height="${y(band[0])-y(band[1])}"/>`;
+  if(floor) s += `<line class="floorl" x1="${pl}" x2="${W-pr}" y1="${y(floor)}" y2="${y(floor)}"/>`;
+  const every = Math.ceil(n/7);
+  values.forEach((v,i)=>{
+    const x = pl + step*i + (step-bw)/2;
+    if(v > 0) s += `<rect class="${pbar?'pbar':'bar '+(barCls?barCls(v,i):'')}" x="${x}" y="${y(v)}" width="${bw}" height="${Math.max(1,y(0)-y(v))}" rx="2"/>`;
+    if((i % every === 0 && n-1-i >= Math.ceil(every*0.7)) || i === n-1) s += `<text class="axis" x="${pl+step*i+step/2}" y="${H-5}" text-anchor="middle">${labels[i]}</text>`;
+  });
+  return s + '</svg>';
+}
+function lineChart(labels, values){
+  const pts = values.map((v,i)=>[i,v]).filter(p=>p[1]!=null);
+  if(pts.length < 2) return '<div class="empty">體重紀錄少於 2 筆，輸入「早上 82.6 公斤」即可記錄</div>';
+  const W=340,H=160,pl=36,pr=10,pt=10,pb=20, iw=W-pl-pr, ih=H-pt-pb, n=values.length;
+  const vs = pts.map(p=>p[1]); let lo = Math.floor(Math.min(...vs)-0.5), hi = Math.ceil(Math.max(...vs)+0.5);
+  const x = i => pl + (n===1?iw/2:iw*i/(n-1)), y = v => pt + ih - (v-lo)/(hi-lo)*ih;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  for(const g of [lo,(lo+hi)/2,hi]) s += `<line class="grid" x1="${pl}" x2="${W-pr}" y1="${y(g)}" y2="${y(g)}"/><text class="axis" x="${pl-4}" y="${y(g)+3}" text-anchor="end">${Math.round(g*10)/10}</text>`;
+  s += `<polyline class="wline" points="${pts.map(p=>`${x(p[0])},${y(p[1])}`).join(' ')}"/>`;
+  pts.forEach(p=> s += `<circle class="wdot" cx="${x(p[0])}" cy="${y(p[1])}" r="3"/>`);
+  const every = Math.ceil(n/7);
+  labels.forEach((l,i)=>{ if((i%every===0 && n-1-i>=Math.ceil(every*0.7))||i===n-1) s += `<text class="axis" x="${x(i)}" y="${H-5}" text-anchor="middle">${l}</text>`; });
+  return s + '</svg>';
+}
+async function renderTrend(v){
+  const N = state.trendRange, t0 = today(), start = addDays(t0, -(N-1));
+  const lastM = (await DB.meals.orderBy('date').reverse().limit(1).toArray())[0];
+  const lastW = (await DB.bodyLogs.orderBy('date').reverse().limit(1).toArray())[0];
+  let end = t0;
+  for(const x of [lastM, lastW]) if(x && x.date > end) end = x.date;
+  if(end > addDays(t0,30)) end = addDays(t0,30);
+  const dates = Array.from({length:diffDays(end,start)+1}, (_,i)=>addDays(start,i));
+  const by = await monthTotals(start, end);
+  const wl = await DB.bodyLogs.where('date').between(start,end,true,true).toArray();
+  const wBy = {}; wl.sort((a,b)=>a.createdAt-b.createdAt).forEach(x=>wBy[x.date]=x.weight);
+  const kc = dates.map(d=>by[d]?by[d].kcal:0), pr = dates.map(d=>by[d]?by[d].protein:0);
+  const labels = dates.map(md2);
+  const done = dates.filter(d=>by[d] && d!==t0);
+  const avgK = done.length ? done.reduce((s,d)=>s+by[d].kcal,0)/done.length : 0;
+  const avgP = done.length ? done.reduce((s,d)=>s+by[d].protein,0)/done.length : 0;
+  const hit = done.filter(d=>by[d].kcal>=S.kcalMin && by[d].kcal<=S.kcalMax).length;
+  const ws = dates.map(d=>wBy[d]??null).filter(x=>x!=null);
+  const wDiff = ws.length>=2 ? (ws[ws.length-1]-ws[0]) : null;
+  v.innerHTML = `<div class="seg" style="margin-top:12px">${[7,14,30].map(n=>`<button class="${N===n?'on':''}" data-act="trendRange" data-n="${n}">近 ${n} 天</button>`).join('')}</div>
+    <div class="stats" style="margin-top:12px">
+      <div class="stat"><span>平均熱量（不含今天）</span><b class="num">${done.length?fmt(avgK):'—'}</b></div>
+      <div class="stat"><span>平均蛋白質 g</span><b class="num">${done.length?fmt(avgP):'—'}</b></div>
+      <div class="stat"><span>熱量達標天數</span><b class="num">${hit} / ${done.length}</b></div>
+      <div class="stat"><span>體重變化 kg</span><b class="num">${wDiff==null?'—':(wDiff>0?'+':'')+wDiff.toFixed(1)}</b></div>
+    </div>
+    <section class="card chart"><div class="between"><b>每日熱量</b><span class="small muted">綠帶為目標，虛線為底線</span></div>
+      ${barChart({labels, values:kc, band:[S.kcalMin,S.kcalMax], floor:S.floor, max:S.tdeeMax, barCls:(val,i)=>{ const c = kcalStatus(val, dates[i]>=t0).cls; return c==='good'?'':c; }})}</section>
+    <section class="card chart"><div class="between"><b>每日蛋白質</b><span class="small muted">綠帶為 ${S.pMin}–${S.pMax} g</span></div>
+      ${barChart({labels, values:pr, band:[S.pMin,S.pMax], max:S.pMax, pbar:true})}</section>
+    <section class="card chart"><div class="between"><b>體重</b><button class="chip-btn" data-act="logWeight">記錄體重</button></div>
+      ${lineChart(labels, dates.map(d=>wBy[d]??null))}</section>`;
+}
+
+/* ========= 設定 ========= */
+function renderSettings(v){
+  const f = (id,label,val,type='text',extra='') => `<label class="field"><span>${label}</span><input class="in ${type==='number'?'num':''}" id="s-${id}" type="${type==='number'?'text':type}" ${type==='number'?'inputmode="decimal"':''} value="${esc(val)}" ${extra}></label>`;
+  v.innerHTML = `
+  <div class="sec-title">Gemini API 金鑰</div>
+  <section class="card onboard">
+    <ol>
+      <li>用 Google 帳號開啟 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio 金鑰頁面</a></li>
+      <li>按「Create API key」建立金鑰並複製</li>
+      <li>貼到下方欄位後按「測試金鑰」</li>
+    </ol>
+    <p class="small muted">金鑰只存在這支手機。免費方案的內容可能被 Google 用於改善模型。</p>
+    <label class="field"><span>API 金鑰</span><div class="keybox"><input class="in" id="s-apiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(S.apiKey)}"><button type="button" class="eye" data-eye="s-apiKey" aria-label="顯示或隱藏金鑰">${EYE_OPEN}</button></div></label>
+    <div class="btns"><button class="btn ghost sm" data-act="testKey">測試金鑰</button><button class="btn ghost sm" data-act="listModels">重新偵測模型</button></div>
+    <label class="field"><span>主要模型</span><select class="in" id="s-model"><option value="${esc(S.model)}">${esc(S.model)}</option></select></label>
+    <label class="field"><span>額度用完時改用</span><select class="in" id="s-fallbackModel"><option value="${esc(S.fallbackModel)}">${esc(S.fallbackModel||'不使用')}</option></select></label>
+    <p class="small muted" id="modelInfo"></p>
+  </section>
+
+  <div class="sec-title">個人資料</div>
+  <section class="card">
+    <div class="grid3">${f('age','年齡',S.age,'number')}${f('height','身高 cm',S.height,'number')}${f('weight','起始體重 kg',S.weight,'number')}</div>
+    <label class="field"><span>性別</span><select class="in" id="s-sex"><option value="male" ${S.sex==='male'?'selected':''}>男</option><option value="female" ${S.sex==='female'?'selected':''}>女</option></select></label>
+    <label class="field"><span>目標</span><select class="in" id="s-goal">${WIZ.goal.map(([v,n])=>`<option value="${v}" ${S.goal===v?'selected':''}>${n}</option>`).join('')}</select></label>
+    ${f('bodyNote','體態描述',S.bodyNote)}${f('activityDesc','活動量（每次調整時自動更新）',S.activityDesc)}
+    <p class="small muted">教練會優先使用最近一次記錄的體重。</p>
+  </section>
+
+  <div class="sec-title">目標</div>
+  <section class="card">
+    <div class="grid2">${f('bmr','BMR 大卡',S.bmr,'number')}${f('floor','安全底線 大卡',S.floor,'number')}</div>
+    <button class="linkbtn" data-act="calcBmr">依目前身體資料重新計算 BMR（Mifflin-St Jeor 公式）</button>
+    <div class="grid2">${f('tdeeMin','TDEE 下限',S.tdeeMin,'number')}${f('tdeeMax','TDEE 上限',S.tdeeMax,'number')}
+    ${f('kcalMin','目標熱量下限',S.kcalMin,'number')}${f('kcalMax','目標熱量上限',S.kcalMax,'number')}
+    ${f('pMin','蛋白質下限 g',S.pMin,'number')}${f('pMax','蛋白質上限 g',S.pMax,'number')}
+    ${f('stepGoal','每日步數目標',S.stepGoal,'number')}${f('startDate','減脂開始日',S.startDate,'date')}
+    ${f('trainMin','每週重訓下限',S.trainMin,'number')}${f('trainMax','每週重訓上限',S.trainMax,'number')}</div>
+  </section>
+  <div class="sec-title">自動調整</div>
+  <section class="card">
+    <p class="small muted" style="margin-top:0">每 14 天依近兩週紀錄自動產生調整建議（需至少 10 天飲食紀錄）。上次調整：${S.lastAdjustDate?md2(S.lastAdjustDate):'—'}，下次約在 ${S.lastAdjustDate?md2(addDays(S.lastAdjustDate,14)):'—'}。</p>
+    <button class="btn ghost" data-act="adjNow">立即產生調整建議</button>
+    <div id="adjHist" style="margin-top:8px"></div>
+  </section>
+  <button class="btn" data-act="saveSettings" style="margin-top:6px;position:sticky;bottom:calc(var(--tabh) + env(safe-area-inset-bottom) + 12px);z-index:10;box-shadow:0 4px 14px rgba(0,0,0,.25)">儲存設定</button>
+
+  <div class="sec-title">資料</div>
+  <section class="card">
+    <p class="small muted" id="persistInfo">所有紀錄存在這支手機的 Safari 中。請從主畫面圖示開啟，避免資料被系統清除。</p>
+    <button class="btn danger" data-act="clearAll">清除全部紀錄</button>
+  </section>
+  <p class="small muted" style="text-align:center;margin:16px 0">減脂追蹤 v1.1</p>`;
+  DB.adjustments.orderBy('date').reverse().limit(10).toArray().then(list=>{
+    fillModelSelects();
+    const el = $('#adjHist'); if(!el) return;
+    const done = list.filter(a=>a.status!=='pending');
+    el.innerHTML = done.length ? done.map(a=>`<div class="kv small"><span>${md2(a.date)} ${a.status==='applied'?'已套用':'未套用'}</span><span class="num">${fmt(a.from.kcalMin)}–${fmt(a.from.kcalMax)} → ${fmt(a.to.kcalMin)}–${fmt(a.to.kcalMax)} 大卡</span></div>`).join('') : '';
+  });
+}
+function readSettingsForm(){
+  const g = id => { const el = $('#s-'+id); return el ? el.value.trim() : undefined; };
+  const n = ['age','height','weight','bmr','floor','tdeeMin','tdeeMax','kcalMin','kcalMax','pMin','pMax','stepGoal','trainMin','trainMax'];
+  const out = {apiKey:g('apiKey'), model:cleanModel(g('model'))||DEFAULTS.model, fallbackModel:cleanModel(g('fallbackModel')), sex:g('sex'), goal:g('goal'), phase:PHASE[g('goal')]||S.phase, bodyNote:g('bodyNote'), activityDesc:g('activityDesc'), startDate:g('startDate')||today()};
+  for(const k of n) out[k] = num(g(k)) || DEFAULTS[k];
+  return out;
+}
+
+/* ========= 事件 ========= */
+const ACTIONS = {
+  tab: b => {
+    if(state.tab === 'today' && b.dataset.tab === 'today'){ window.scrollTo({top:0, behavior:'smooth'}); return; }
+    state.tab = b.dataset.tab; window.scrollTo(0,0); render();
+  },
+  fold: b => setFold(b.dataset.k, !state.fold[b.dataset.k]),
+  jump: b => {
+    if(b.dataset.mode === 'up'){ window.scrollTo({top:0, behavior:'smooth'}); return; }
+    const go = () => window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'});
+    if(state.fold.chats){ setFold('chats', false); setTimeout(go, 320); } else go();
+  },
+  editSteps: async () => {
+    const d = await dayData(state.date);
+    const sh = openSheet(`<h2>${state.date===today()?'今天':md2(state.date)}總共走了幾步？</h2>
+      <input class="in num" id="st-in" inputmode="numeric" pattern="[0-9]*" value="${d.steps||''}" placeholder="例如 9500" style="font-size:22px;text-align:center">
+      <div class="btns" style="margin-top:14px"><button class="btn ghost" id="st-cancel" style="flex:1">取消</button><button class="btn" id="st-ok" style="flex:2">儲存</button></div>`);
+    const inp = sh.querySelector('#st-in'); setTimeout(()=>inp.focus(), 250);
+    sh.querySelector('#st-cancel').onclick = () => closeSheet();
+    sh.querySelector('#st-ok').onclick = async () => {
+      const n = Math.round(num(inp.value));
+      if(n < 0 || n > 100000){ toast('請輸入正確步數'); return; }
+      if(n === 0){
+        const old = await DB.activities.where('date').equals(state.date).toArray();
+        await DB.activities.bulkDelete(old.filter(a=>a.kind==='walk' && a.steps).map(a=>a.id));
+      } else await saveSteps(state.date, n);
+      closeSheet(); toast(n ? `已記錄 ${fmt(n)} 步` : '已清除步數'); render();
+    };
+  },
+  prevDay: () => { state.date = addDays(state.date,-1); render(); },
+  nextDay: () => { state.date = addDays(state.date,1); render(); },
+  pickDay: b => { state.date = b.dataset.d; state.stripFor = state.date; window.scrollTo(0,0); render(); },
+  openCal: () => openCalSheet(),
+  goToday: () => goDate(today()),
+  mealType: b => { state.mealType = b.dataset.k; renderMealSeg(); },
+  pickPhoto: () => $('#photoInput').click(),
+  clearPhoto: () => { state.photo = null; renderMealSeg(); updateComposeHeight(); },
+  quickFood: () => openFoodPicker(items => openMealEditor({date:state.date, mealType:defaultMealType(), items, comment:'', isNew:true})),
+  send: () => send(),
+  review: () => review(),
+  editMeal: async b => { const m = await DB.meals.get(Number(b.dataset.id)); if(m) openMealEditor({...m, isNew:false}); },
+  addMeal: () => openMealEditor({date:state.date, mealType:defaultMealType(), items:[], comment:'', isNew:true, manual:true}),
+  addAct: () => openActEditor(null),
+  editAct: async b => { if(b.dataset.id){ const a = await DB.activities.get(Number(b.dataset.id)); if(a) openActEditor(a); } else openActEditor(null, b.dataset.kind); },
+  editWeight: () => openWeightEditor(state.date),
+  delAct: async b => { if(!confirm('刪除這筆運動紀錄？')) return; await DB.activities.delete(Number(b.dataset.id)); render(); },
+  calPrev: () => { const [y,m] = state.calMonth.split('-').map(Number); const d = new Date(y,m-2,1); state.calMonth = `${d.getFullYear()}-${pad(d.getMonth()+1)}`; render(); },
+  calNext: () => { const [y,m] = state.calMonth.split('-').map(Number); const d = new Date(y,m,1); state.calMonth = `${d.getFullYear()}-${pad(d.getMonth()+1)}`; render(); },
+  calDay: b => { state.date = b.dataset.d; state.tab = 'today'; window.scrollTo(0,0); render(); },
+  trendRange: b => { state.trendRange = Number(b.dataset.n); render(); },
+  addFood: () => openFoodForm({}),
+  editFood: async b => { const f = await DB.foods.get(Number(b.dataset.id)); if(f) openFoodForm(f); },
+  labelScan: () => $('#labelInput').click(),
+  logWeight: () => openWeightEditor(today()),
+  toggleKey: b => { const i = $('#s-apiKey'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? '隱藏' : '顯示'; },
+  saveSettings: async () => { S = {...S, ...readSettingsForm()}; await saveSettings(); toast('設定已儲存'); },
+  calcBmr: () => {
+    const w = num($('#s-weight').value), h = num($('#s-height').value), a = num($('#s-age').value), male = $('#s-sex').value === 'male';
+    const bmr = Math.round(10*w + 6.25*h - 5*a + (male ? 5 : -161));
+    $('#s-bmr').value = bmr; $('#s-floor').value = bmr; toast(`BMR 約 ${fmt(bmr)} 大卡，記得按儲存`);
+  },
+  testKey: async () => {
+    S = {...S, ...readSettingsForm()}; await saveSettings();
+    toast('測試中…', 1500);
+    try{ await callGemini([{text:'回覆 {"ok":true}'}], '只輸出 JSON。', 0); toast('金鑰可以使用 ✓'); }
+    catch(e){ toast(e.message === 'NO_KEY' ? '請先貼上金鑰' : e.message, 4500); }
+  },
+  listModels: () => fillModelSelects(),
+  rerunWizard: () => openWizard(),
+  adjNow: async () => {
+    const st = await computeStats();
+    if(st.loggedDays < 5){ toast(`近兩週飲食紀錄只有 ${st.loggedDays} 天，至少需要 5 天`); return; }
+    state.tab = 'today'; state.date = today(); window.scrollTo(0,0);
+    await createAdjustment();
+  },
+  adjApply: async b => {
+    const a = await DB.adjustments.get(Number(b.dataset.id)); if(!a) return;
+    S = {...S, ...a.to, lastAdjustDate: today()}; await saveSettings();
+    await DB.adjustments.update(a.id, {status:'applied', decidedAt:Date.now()});
+    toast('已套用新目標'); render();
+  },
+  adjSkip: async b => {
+    if(!confirm('這次不調整？兩週後會再提出建議。')) return;
+    await DB.adjustments.update(Number(b.dataset.id), {status:'dismissed', decidedAt:Date.now()});
+    S.lastAdjustDate = today(); await saveSettings(); render();
+  },
+  clearAll: async () => {
+    if(!confirm('確定清除全部餐點、運動、體重與對話紀錄？此動作無法復原。')) return;
+    if(!confirm('再次確認：清除後無法救回。')) return;
+    await Promise.all([DB.meals.clear(), DB.photos.clear(), DB.activities.clear(), DB.bodyLogs.clear(), DB.chats.clear()]);
+    photoURL.clear(); toast('已清除');
+  }
+};
+document.addEventListener('click', e=>{
+  const b = e.target.closest('[data-act]'); if(!b || b.disabled) return;
+  const fn = ACTIONS[b.dataset.act]; if(fn){ e.preventDefault(); fn(b, e); }
+});
+$('#photoInput').addEventListener('change', async e=>{
+  const file = e.target.files[0]; e.target.value=''; if(!file) return;
+  try{ state.photo = await prepPhoto(file); renderMealSeg(); updateComposeHeight(); $('#msg').focus(); }
+  catch(err){ toast(err.message); }
+});
+$('#labelInput').addEventListener('change', e=>{ const file = e.target.files[0]; e.target.value=''; if(file) scanLabel(file); });
+document.addEventListener('change', async e=>{
+  const id = e.target.id;
+  if(id === 's-model' || id === 's-fallbackModel'){
+    S[id === 's-model' ? 'model' : 'fallbackModel'] = e.target.value; S.modelManual = true;
+    await saveSettings(); toast('已切換模型');
+  }
+  if(id === 's-apiKey') fillModelSelects();
+});
+const ta = $('#msg');
+function autoGrow(){ ta.style.height='auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; updateComposeHeight(); }
+ta.addEventListener('input', autoGrow);
+window.addEventListener('scroll', ()=>{ $('#top').classList.toggle('scrolled', scrollY>4); updateJump(); }, {passive:true});
+window.addEventListener('resize', updateJump);
+document.addEventListener('visibilitychange', ()=>{
+  // 跨日自動切換到今天
+  if(document.visibilityState === 'visible' && state.tab === 'today' && state.lastToday && state.lastToday !== today() && state.date === state.lastToday){
+    state.date = today(); state.mealType = defaultMealType(); render();
+  }
+  state.lastToday = today();
+});
+
+/* ========= 啟動 ========= */
+(async function init(){
+  try{
+    if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+    await loadSettings(); await seed();
+    state.date = today(); state.lastToday = today(); state.mealType = defaultMealType();
+    state.calMonth = today().slice(0,7);
+    await render();
+    if(!S.profileDone) openWizard();
+    else if(S.apiKey && !S.modelManual) autoPickModels(S.apiKey).catch(()=>{});
+    new ResizeObserver(updateComposeHeight).observe($('#composer'));
+  }catch(e){
+    $('#view').innerHTML = `<div class="card">啟動失敗：${esc(e.message)}<br><span class="small muted">請確認網路連線後重新開啟。</span></div>`;
+  }
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+})();
+</script>
+</body>
+</html>
