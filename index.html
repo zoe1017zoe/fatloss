@@ -127,6 +127,7 @@ details.comment[open] summary::after{content:"收合"}
 .bubble.a{background:var(--card);box-shadow:var(--shadow)}
 .bubble.a .md{padding-bottom:0}
 .thinking{display:flex;align-items:center;gap:10px;color:var(--muted)}
+.dots{flex:none;white-space:nowrap}
 .dots span{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:3px;animation:b 1s infinite}
 .dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
 @keyframes b{0%,80%,100%{opacity:.25}40%{opacity:1}}
@@ -156,6 +157,20 @@ details.comment[open] summary::after{content:"收合"}
 .roundbtn:disabled{opacity:.4}
 .preview{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .preview img{width:52px;height:52px;object-fit:cover;border-radius:10px}
+.pstrip{display:flex;gap:8px;overflow-x:auto;margin-top:12px;scrollbar-width:none;flex:1;min-width:0}
+.pstrip::-webkit-scrollbar{display:none}
+.pcell{position:relative;flex:0 0 auto}
+.pcell img{width:180px;height:140px;object-fit:cover;border-radius:12px;display:block}
+.pstrip.one .pcell{flex:1}
+.pstrip.one .pcell img{width:100%;height:200px}
+.pdel{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:18px;line-height:1;display:grid;place-items:center;padding:0}
+.preview .pstrip{margin-top:0}
+.preview .pcell img{width:52px;height:52px;border-radius:10px}
+.preview .pdel{top:2px;right:2px;width:20px;height:20px;font-size:13px}
+.thumbwrap{position:relative;flex:none}
+.tbadge{position:absolute;right:4px;bottom:4px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:700;border-radius:8px;padding:1px 6px}
+.qimgs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:min(240px,62vw)}
+.qimgs img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;display:block}
 
 /* tabbar */
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:31;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
@@ -362,7 +377,7 @@ const MEAL_NAME = Object.fromEntries(MEALS);
 const ACT_NAME = {walk:'走路',weights:'重訓',run:'跑步',swim:'游泳',cycle:'騎車',ball:'球類',other:'其他運動'};
 
 let S = {...DEFAULTS};
-const state = { fold:(()=>{ try{ return JSON.parse(localStorage.getItem('fold'))||{}; }catch(_){ return {}; } })(), tab:'today', date:'', mealType:'lunch', photo:null, busy:false, trendRange:14, calMonth:'' };
+const state = { photos:[], pendingImgs:[], fold:(()=>{ try{ return JSON.parse(localStorage.getItem('fold'))||{}; }catch(_){ return {}; } })(), tab:'today', date:'', mealType:'lunch', photo:null, busy:false, trendRange:14, calMonth:'' };
 
 /* ========= 工具 ========= */
 const $ = s => document.querySelector(s);
@@ -704,7 +719,7 @@ async function hydratePhotos(root=document){
     const u = await photoSrc(Number(img.dataset.photo)); if(u) img.src = u;
   }
 }
-async function prepPhoto(file, max=1024){
+async function prepPhoto(file, max=768){  // 餐點照片一律壓到長邊 768 像素
   const url = URL.createObjectURL(file);
   const img = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('無法讀取這張照片')); i.src=url; });
   let w = img.naturalWidth, h = img.naturalHeight; const sc = Math.min(1, max/Math.max(w,h));
@@ -716,23 +731,37 @@ async function prepPhoto(file, max=1024){
   return {blob, base64, preview:URL.createObjectURL(blob)};
 }
 
-function pickImage(onFile){
-  // 手機會跳出系統選單（拍照或照片圖庫），電腦會開啟選擇檔案視窗
+function pickImage(onFiles){
+  // 手機會跳出系統選單（拍照或照片圖庫），可多選；電腦會開啟選擇檔案視窗
   document.querySelectorAll('.tmp-pick').forEach(x=>x.remove());
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/*'; inp.className = 'tmp-pick'; inp.style.display = 'none';
-  inp.addEventListener('change', ()=>{ const f = inp.files[0]; inp.remove(); if(f) onFile(f); });
+  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.className = 'tmp-pick'; inp.style.display = 'none';
+  inp.addEventListener('change', ()=>{ const fs = [...inp.files]; inp.remove(); if(fs.length) onFiles(fs); });
   document.body.appendChild(inp); inp.click();
 }
-async function setComposerPhoto(file){
-  try{ state.photo = await prepPhoto(file); renderMealSeg(); updateComposeHeight(); $('#msg').focus(); }
+const MAX_PHOTOS = 10;
+async function addComposerPhotos(files){
+  const room = MAX_PHOTOS - state.photos.length;
+  if(room <= 0){ toast(`最多 ${MAX_PHOTOS} 張照片`); return; }
+  if(files.length > room) toast(`最多 ${MAX_PHOTOS} 張，已加入前 ${room} 張`);
+  try{ for(const f of files.slice(0, room)) state.photos.push(await prepPhoto(f)); }
   catch(err){ toast(err.message); }
+  renderMealSeg(); updateComposeHeight(); $('#msg').focus();
 }
+async function deletePhotosIfUnused(ids){
+  for(const id of ids){
+    if(!id) continue;
+    const used = (await DB.chats.filter(c=>c.photoId===id || (c.photoIds||[]).includes(id)).count())
+               + (await DB.meals.filter(m=>m.photoId===id || (m.photoIds||[]).includes(id)).count());
+    if(!used){ await DB.photos.delete(id); photoURL.delete(id); }
+  }
+}
+const photoIdsOf = x => x.photoIds || (x.photoId ? [x.photoId] : []);
 
 /* ========= Gemini ========= */
 const cleanModel = m => String(m||'').trim().replace(/^models\//,'');
 function friendlyError(e){
-  if(e && e.timeout) return 'Gemini 超過 45 秒沒有回應。請到設定頁改選「★ 推薦」模型，或稍後再試。';
+  if(e && e.timeout) return 'Gemini 超過 45 秒沒有回應，請稍後再試，或到設定頁改選其他模型。';
   const m = (e && e.message) || '';
   if(e && e.status === 429) return '已達 Gemini 免費額度上限，請稍後再試，或明天再使用。';
   if(/API key not valid|API_KEY_INVALID/i.test(m)) return 'API 金鑰無效，請到設定重新貼上。';
@@ -770,7 +799,7 @@ function classifyModels(list){
   }).sort((a,b)=>a.rank-b.rank || b.ver-a.ver || a.id.length-b.id.length);
   const rec = items.find(i=>i.rank===1) || items.find(i=>i.rank===3 && /flash/.test(i.id) && !/lite/.test(i.id));
   const recLite = items.find(i=>i.rank===2) || items.find(i=>i.rank===3 && /flash-lite/.test(i.id));
-  if(rec) rec.tag = '★ 推薦'; if(recLite) recLite.tag = '★ 推薦備用';
+  if(rec) rec.tag = '★ 推薦照片辨識'; if(recLite) recLite.tag = '★ 推薦文字對話';
   return {items, rec: rec && rec.id, recLite: recLite && recLite.id};
 }
 async function fetchModels(key){
@@ -781,7 +810,7 @@ async function fetchModels(key){
 }
 async function autoPickModels(key){
   const r = await fetchModels(key);
-  if(!S.modelManual && r.rec){ S.model = r.rec; S.fallbackModel = r.recLite || ''; await saveSettings(); }
+  if(!S.modelManual && r.rec){ S.model = r.rec; S.fallbackModel = r.recLite || r.rec; await saveSettings(); }
   return r;
 }
 async function fillModelSelects(){
@@ -795,12 +824,12 @@ async function fillModelSelects(){
     const opts = cur => (r.items.some(i=>i.id===cur) || !cur ? '' : `<option value="${esc(cur)}" selected>${esc(cur)}（不在可用清單中）</option>`)
       + r.items.map(i=>`<option value="${esc(i.id)}" ${i.id===cur?'selected':''}>${esc(i.id)}（${i.tag}）</option>`).join('');
     $('#s-model').innerHTML = opts(S.model);
-    $('#s-fallbackModel').innerHTML = `<option value="" ${S.fallbackModel?'':'selected'}>不使用</option>` + opts(S.fallbackModel);
-    info.textContent = `偵測到 ${r.items.length} 個可用模型，已預設選擇「★ 推薦」。`;
+    $('#s-fallbackModel').innerHTML = opts(S.fallbackModel);
+    info.textContent = `偵測到 ${r.items.length} 個可用模型。照片辨識與文字對話各用一個，其中一個額度用完會自動改用另一個。`;
   }catch(e){ info.textContent = friendlyError(e); }
 }
 
-const THINK_OK = {};  // 記住每個模型可用的思考設定
+const THINK_OK = (()=>{ try{ return JSON.parse(localStorage.getItem('thinkOK')) || {}; }catch(_){ return {}; } })();  // 記住每個模型可用的思考設定，重新開啟也不用再試
 function thinkOptions(m){
   const v = (m.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1], ver = v ? parseFloat(v) : 0;
   if(ver >= 3) return [{thinkingLevel:'minimal'}, {thinkingLevel:'low'}, null];
@@ -850,16 +879,19 @@ async function geminiRequest(m, tc, body, onText){
 }
 async function callGemini(parts, sys, temperature=0.4, onText=null){
   if(!S.apiKey) throw new Error('NO_KEY');
-  const models = [S.model, S.fallbackModel].map(cleanModel).filter((m,i,a)=>m && a.indexOf(m)===i);
+  // 依用途分流：有照片先用照片辨識模型，純文字先用文字對話模型；額度用完互相替補
+  const hasImg = parts.some(x=>x.inline_data);
+  const models = (hasImg ? [S.model, S.fallbackModel] : [S.fallbackModel, S.model]).map(cleanModel).filter((m,i,a)=>m && a.indexOf(m)===i);
   const body = {systemInstruction:{parts:[{text:sys}]}, contents:[{role:'user', parts}], generationConfig:{responseMimeType:'application/json', temperature}};
   let lastErr;
   for(const m of models){
     try{
-      const tries = (m in THINK_OK) ? [THINK_OK[m]] : thinkOptions(m);
+      const same = (x,y) => JSON.stringify(x) === JSON.stringify(y);
+      const tries = (m in THINK_OK) ? [THINK_OK[m], ...thinkOptions(m).filter(x=>!same(x, THINK_OK[m]))] : thinkOptions(m);
       let r;
       for(const tc of tries){
         r = await geminiRequest(m, tc, body, onText);
-        if(r.ok){ THINK_OK[m] = tc; break; }
+        if(r.ok){ THINK_OK[m] = tc; try{ localStorage.setItem('thinkOK', JSON.stringify(THINK_OK)); }catch(_){} break; }
         if(!(r.status === 400 && tc)) break;  // 只有模型不支援該思考設定時才換下一種
       }
       if(!r.ok){ const err = new Error(r.msg); err.status = r.status; throw err; }
@@ -921,24 +953,22 @@ ${foodLines}
 # 輸出格式
 只輸出一個 JSON 物件，不要有其他文字：
 {
-  "intent": [ "meal"、"exercise"、"weight" 中這則訊息要記錄的項目；純提問給空陣列 ],
-  "reply": "給學員的回覆（Markdown）",
   "type": "meal" 或 "exercise" 或 "question",
-  "mealType": "breakfast" 或 "lunch" 或 "dinner" 或 "snack" 或 null,
   "date": "YYYY-MM-DD 或 null（學員明確提到其他日期時才填，例如「昨天」「10/20」，依 APP 提供的今天日期換算；沒提到填 null）",
   "weights": [ { "date": "YYYY-MM-DD", "kg": 0 } ],
-  "items": [ { "name": "食物名稱", "amount": "份量描述", "kcal": 0, "protein": 0, "carb": 0, "fat": 0 } ],
-  "activities": [ { "kind": "walk|weights|run|swim|cycle|ball|other", "label": "簡短描述", "steps": null, "durationMin": null, "kcalBurned": 0 } ]
+  "meals": [ { "mealType": "breakfast" 或 "lunch" 或 "dinner" 或 "snack" 或 null, "photos": [這餐對應的照片編號，從 1 開始], "items": [ { "name": "食物名稱", "amount": "份量描述", "kcal": 0, "protein": 0, "carb": 0, "fat": 0 } ] } ],
+  "activities": [ { "kind": "walk|weights|run|swim|cycle|ball|other", "label": "簡短描述", "steps": null, "durationMin": null, "kcalBurned": 0 } ],
+  "reply": "給學員的回覆（Markdown）"
 }
 規則：
-- 嚴格依照上方欄位順序輸出：先 intent，再 reply，最後才是 type、items、activities 等數值。reply 寫在數值之前，提到熱量時用約略值（例如「約 800 大卡」），精確數字以後面的 items 為準。
-- 餐點照片或描述吃了什麼 → type 為 "meal"，items 逐項拆解。reply 依序包含三段：「**點評**」（這餐的優缺點）、「**下一餐建議**」（依這餐加入後的剩餘熱量與蛋白質缺口，具體指示下一餐或睡前吃什麼，同時避免熱量或鈉爆表）、「**步數提醒**」（今日尚未記錄步數或未達標時提醒睡前確認）。
+- 餐點照片或描述吃了什麼 → type 為 "meal"，meals 內的 items 逐項拆解。reply 依序包含三段：「**點評**」（這餐的優缺點）、「**下一餐建議**」（依這餐加入後的剩餘熱量與蛋白質缺口，具體指示下一餐或睡前吃什麼，同時避免熱量或鈉爆表）、「**步數提醒**」（今日尚未記錄步數或未達標時提醒睡前確認）。
 - 描述運動或步數 → type 為 "exercise"，activities 逐項列出，kcalBurned 採保守估計，步數寫在 steps。reply 簡短點評並提醒飲食配合（例如練後補蛋白質）。
 - 提問 → type 為 "question"，reply 直接回答，需要時引用學員的紀錄。
-- 同一則訊息同時有餐點與運動 → type 為 "meal"，items 與 activities 都要填。
+- 同一則訊息同時有餐點與運動 → type 為 "meal"，meals 與 activities 都要填。
 - 學員回報體重 → weights 填入（日期依學員所說，沒說就用 APP 提供的記錄日期），type 依其他內容判斷，沒有其他內容就用 "question"，reply 簡短回應。
+- 多張照片：學員有說明哪些照片或食物屬於哪一餐（例如「前三張是午餐，後面是晚餐」）才拆成多筆 meals，每筆的 photos 填對應的照片編號；沒有說明就全部放在同一筆 meals。mealType 依學員說法判斷，沒提到填 null。
 - 不適用的欄位給空陣列或空字串。reply 控制在 250 字以內，用短段落或列點。
-- 照片不是食物或無法辨識 → type 為 "question"，items 為空陣列，reply 說明原因並請學員補充文字描述。`;
+- 照片不是食物或無法辨識 → type 為 "question"，meals 為空陣列，reply 說明原因並請學員補充文字描述。`;
 }
 
 async function buildContext(date, mealType, includeMealLine=true){
@@ -1147,8 +1177,10 @@ function renderMealSeg(){
   seg.innerHTML = isToday ? '' : `<span class="hint" style="margin-left:0">記錄到 ${md2(state.date)}</span>`;
   seg.style.display = isToday ? 'none' : '';
   const p = $('#preview');
-  if(state.photo){ p.hidden=false; p.innerHTML = `<img src="${state.photo.preview}" alt=""><span class="small muted">已附照片，可再加文字說明</span><button class="xbtn" data-act="clearPhoto" aria-label="移除照片">×</button>`; }
-  else { p.hidden=true; p.innerHTML=''; }
+  if(state.photos.length){
+    p.hidden = false;
+    p.innerHTML = `<div class="pstrip">${state.photos.map((ph,i)=>`<div class="pcell"><img src="${ph.preview}" alt=""><button class="pdel" data-act="removePhoto" data-i="${i}" aria-label="移除照片">×</button></div>`).join('')}</div><span class="small muted num" style="flex:none">${state.photos.length}/${MAX_PHOTOS}</span>`;
+  } else { p.hidden = true; p.innerHTML = ''; }
   $('#sendBtn').disabled = state.busy;
 }
 function updateComposeHeight(){
@@ -1222,14 +1254,17 @@ async function renderToday(v){
     for(const m of d.meals.filter(x=>x.mealType===mk)){
       const s = sumItems(m.items);
       html += `<div class="meal"><div class="meal-main">
-        ${m.photoId?`<img class="thumb" data-photo="${m.photoId}" alt="">`:`<div class="thumb ph">${ICON.bowl}</div>`}
+        ${(()=>{ const ids = photoIdsOf(m); return ids.length ? `<div class="thumbwrap"><img class="thumb" data-photo="${ids[0]}" alt="">${ids.length>1?`<span class="tbadge">+${ids.length-1}</span>`:''}</div>` : `<div class="thumb ph">${ICON.bowl}</div>`; })()}
         <div style="min-width:0;flex:1"><div class="meal-title"><span class="typebadge">${MEAL_NAME[m.mealType]}</span><span class="num">${fmt(s.kcal)} 大卡</span><span class="muted small num"> · 蛋白質 ${fmt(s.protein)} g</span></div>
-        <div class="meal-items">${esc(m.items.map(i=>i.name).join('、')||'（無品項）')}</div></div>
+        <div class="meal-items">${esc(m.items.map(i=>i.name).join('、')||(m.pending?'':'（無品項）'))}</div>
+        ${m.pending && JOBS.has(m.id) ? `<div class="thinking small" style="margin-top:4px;gap:6px">${DOTS}<span>${RECOG_HINT}</span></div>` : ''}
+        ${m.pending && !JOBS.has(m.id) ? `<div class="small" style="margin-top:4px;color:var(--warn)">辨識中斷 <button class="linkbtn" data-act="retryMeal" data-id="${m.id}" style="padding:0 0 0 6px">重試</button></div>` : ''}
+        ${m.failReason ? `<div class="small" style="margin-top:4px;color:var(--bad)">辨識失敗：${esc(m.failReason)}</div>` : ''}</div>
         <button class="btn ghost sm" data-act="editMeal" data-id="${m.id}" style="flex:none">編輯</button></div>
       </div>`;
     }
   }
-  if(pend.includes('meal')) html += `<div class="meal"><div class="meal-main">${state.pendingImg?`<img class="thumb" src="${state.pendingImg}" alt="">`:`<div class="thumb ph">${ICON.bowl}</div>`}<div class="thinking" style="flex:1">${DOTS}分析中…</div></div></div>`;
+  if(pend.includes('meal')) html += `<div class="meal"><div class="meal-main">${state.pendingImgs[0]?`<img class="thumb" src="${state.pendingImgs[0]}" alt="">`:`<div class="thumb ph">${ICON.bowl}</div>`}<div class="thinking" style="flex:1">${DOTS}分析中…</div></div></div>`;
   html += `</div></div>`;
 
   // 運動
@@ -1250,14 +1285,19 @@ async function renderToday(v){
   if(d.chats.length || state.pendingQ || state.lastError){
     html += foldHead('chats', '教練對話', d.chats.length ? `（${d.chats.length} 則）` : '') + `<div class="coll ${state.fold.chats?'closed':''}" data-coll="chats"><div>`;
     for(const c of d.chats){
-      html += `<div class="bubble q">${c.photoId?`<img data-photo="${c.photoId}" alt="" style="display:block;width:160px;max-width:100%;border-radius:10px;${c.q?'margin-bottom:6px':''}">`:''}${esc(c.q)}</div><div class="bubble a"><div class="md">${md(c.a)}</div></div>`;
+      html += `<div class="bubble q">${qImgs(photoIdsOf(c).map(id=>`data-photo="${id}"`), !!c.q)}${esc(c.q)}</div><div class="bubble a"><div class="md">${md(c.a)}</div></div>`;
     }
-    if(state.pendingQ) html += `<div class="bubble q">${state.pendingImg?`<img src="${state.pendingImg}" alt="" style="display:block;width:160px;max-width:100%;border-radius:10px;${state.pendingQ.trim()?'margin-bottom:6px':''}">`:''}${esc(state.pendingQ.trim())}</div>`
-      + (state.pendingA ? `<div class="bubble a" id="pendingA"><div class="md">${md(state.pendingA)}</div></div>` : `<div class="bubble a thinking" id="pendingA"><span class="dots"><span></span><span></span><span></span></span>教練正在思考…</div>`);
+    if(state.pendingQ) html += `<div class="bubble q">${qImgs(state.pendingImgs.map(u=>`src="${u}"`), !!state.pendingQ.trim())}${esc(state.pendingQ.trim())}</div>`
+      + (state.pendingA ? `<div class="bubble a" id="pendingA"><div class="md">${md(state.pendingA)}</div></div>` : `<div class="bubble a thinking" id="pendingA"><span class="dots"><span></span><span></span><span></span></span>教練正在思考…<span class="small" style="color:var(--warn)">（請先不要離開 APP）</span></div>`);
     if(state.lastError) html += `<div class="bubble a" style="border:1.5px solid var(--bad)"><b style="color:var(--bad)">沒有成功</b><p style="margin:4px 0 0">${esc(state.lastError)}</p></div>`;
     html += `</div></div><div id="chatEnd"></div>`;
   }
   v.innerHTML = html;
+}
+function qImgs(attrs, hasText){
+  if(!attrs.length) return '';
+  if(attrs.length === 1) return `<img ${attrs[0]} alt="" style="display:block;width:160px;max-width:100%;border-radius:10px;${hasText?'margin-bottom:6px':''}">`;
+  return `<div class="qimgs" style="${hasText?'margin-bottom:6px':''}">${attrs.map(a=>`<img ${a} alt="">`).join('')}</div>`;
 }
 function foldHead(k, title, sum, addAct){
   return `<div class="sec-head ${state.fold[k]?'closed':''}" data-head="${k}"><button class="sh-t" data-act="fold" data-k="${k}">${title}<span class="sum">${sum}</span></button>${addAct?`<button class="addbtn" data-act="${addAct}">＋ 新增</button>`:''}<button class="chev" data-act="fold" data-k="${k}" aria-label="展開或收合"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></div>`;
@@ -1417,11 +1457,11 @@ async function send(){
   if(state.busy) return;
   const ta = $('#msg');
   const text = ta.value.trim();
-  const photo = state.photo;
-  if(!text && !photo) return;
+  const photos = state.photos.slice();
+  if(!text && !photos.length) return;
   const date = state.date, mealType = state.mealType;
 
-  if(!photo){
+  if(!photos.length){
     const local = parseLocal(text);
     if(local){
       if(local.kind === 'steps'){ await saveSteps(date, local.steps); toast(`已記錄 ${fmt(local.steps)} 步`); }
@@ -1432,28 +1472,16 @@ async function send(){
   if(!S.apiKey){ toast('這項功能需要 Gemini API 金鑰，請先到設定輸入'); return; }
 
   if(state.fold.chats){ state.fold.chats = false; saveFold(); }
-  state.busy = true; state.lastError = ''; state.pendingQ = text || ' '; state.pendingImg = photo ? photo.preview : ''; state.photo = null; ta.value=''; autoGrow(); await render();
+  state.busy = true; state.lastError = ''; state.pendingQ = text || ' '; state.pendingImgs = photos.map(x=>x.preview); state.photos = []; ta.value=''; autoGrow(); await render();
   window.scrollTo(0, document.body.scrollHeight);
   try{
     const ctx = await buildContext(date, mealType);
     const parts = [];
-    if(photo) parts.push({inline_data:{mime_type:'image/jpeg', data:photo.base64}});
-    parts.push({text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n${photo?'（附上一張餐點照片）\n':''}${text?'文字：'+text:'（無文字說明）'}`});
-    const onText = txt => {
-      if(!state.pendingIntent){ const it = partialIntent(txt); if(it && it.length){ state.pendingIntent = it; render(); } }
-      const rep = partialField(txt, 'reply');
-      if(rep && rep !== state.pendingA){
-        const nearBottom = innerHeight + scrollY >= document.body.scrollHeight - 160;
-        state.pendingA = rep;
-        const el = $('#pendingA');
-        if(el){ el.classList.remove('thinking'); el.innerHTML = `<div class="md">${md(rep)}</div>`; }
-        if(nearBottom) window.scrollTo(0, document.body.scrollHeight);
-      }
-    };
-    const r = await callGemini(parts, await systemPrompt(), 0.4, onText);
+    for(const ph of photos) parts.push({inline_data:{mime_type:'image/jpeg', data:ph.base64}});
+    parts.push({text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n${photos.length?`（附上 ${photos.length} 張餐點照片，依上傳順序為第 1～${photos.length} 張）\n`:''}${text?'文字：'+text:'（無文字說明）'}`});
+    const r = await callGemini(parts, await systemPrompt());
     const reply = r.reply || r.comment || r.answer || '';
     const notes = [];
-    const items = Array.isArray(r.items) ? r.items.filter(i=>i && i.name) : [];
     const acts = Array.isArray(r.activities) ? r.activities.filter(a=>a && (a.kind||a.label)) : [];
     const okDate = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && Math.abs(diffDays(x, today())) <= 366;
     const tDate = okDate(r.date) ? r.date : date;
@@ -1469,23 +1497,35 @@ async function send(){
       if(kg > 30 && kg < 250){ await saveWeight(wd, kg); wSaved.push(`${md2(wd)} ${Math.round(kg*10)/10} kg`); }
     }
     if(wSaved.length) notes.push(`**已記錄：體重** ${wSaved.join('、')}`);
-    state.photo = null;
-    const photoId = photo ? await DB.photos.add({blob:photo.blob}) : null;
-    if(items.length){
-      const mt = MEAL_NAME[r.mealType] ? r.mealType : defaultMealType();
-      const clean = items.map(normItem), sm = sumItems(clean);
-      const mealId = await DB.meals.add({date:tDate, mealType:mt, items:clean, photoId, comment:reply, sourceText:text, createdAt:Date.now(), updatedAt:Date.now()});
-      notes.unshift(`**已記錄：${dTag}${MEAL_NAME[mt]}** ${clean.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g（數字不對可按餐點的「編輯」修改）`);
-      await DB.chats.add({date, q:text, photoId, mealId, a:[reply, ...notes].filter(Boolean).join('\n\n'), createdAt:Date.now()});
-    } else {
-      await DB.chats.add({date, q:text, photoId, a:[reply, ...notes].filter(Boolean).join('\n\n') || '（沒有回覆內容）', createdAt:Date.now()});
+    const photoIds = [];
+    for(const ph of photos) photoIds.push(await DB.photos.add({blob:ph.blob}));
+    const rawMeals = Array.isArray(r.meals) ? r.meals : (Array.isArray(r.items) ? [{mealType:r.mealType, items:r.items, photos:[]}] : []);
+    const meals = rawMeals.map(m=>({
+      mealType: MEAL_NAME[m && m.mealType] ? m.mealType : defaultMealType(),
+      items: (Array.isArray(m && m.items) ? m.items : []).filter(i=>i && i.name).map(normItem),
+      photos: (Array.isArray(m && m.photos) ? m.photos : []).map(Number).filter(n=>n >= 1 && n <= photos.length)
+    })).filter(m=>m.items.length);
+    if(meals.length === 1) meals[0].photos = photos.map((_,i)=>i+1);
+    else if(meals.length > 1){
+      const used = new Set(meals.flatMap(m=>m.photos));
+      meals[0].photos.push(...photos.map((_,i)=>i+1).filter(n=>!used.has(n)));  // 判斷不出的照片放第一餐
     }
+    const mealNotes = []; let firstMealId = null;
+    for(const m of meals){
+      const ids = [...new Set(m.photos)].sort((x,y)=>x-y).map(n=>photoIds[n-1]);
+      const sm = sumItems(m.items);
+      const id = await DB.meals.add({date:tDate, mealType:m.mealType, items:m.items, photoId:ids[0]||null, photoIds:ids, comment:reply, sourceText:text, createdAt:Date.now(), updatedAt:Date.now()});
+      if(!firstMealId) firstMealId = id;
+      mealNotes.push(`**已記錄：${dTag}${MEAL_NAME[m.mealType]}** ${m.items.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g`);
+    }
+    if(mealNotes.length) mealNotes[mealNotes.length-1] += '（數字不對可按餐點的「編輯」修改）';
+    await DB.chats.add({date, q:text, photoId:photoIds[0]||null, photoIds, mealId:firstMealId, a:[reply, ...mealNotes, ...notes].filter(Boolean).join('\n\n') || '（沒有回覆內容）', createdAt:Date.now()});
   }catch(e){
-    ta.value = text; autoGrow(); state.photo = photo;
+    ta.value = text; autoGrow(); state.photos = photos;
     state.lastError = e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message;
     toast(e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message, 4200);
   }finally{
-    state.busy = false; state.pendingQ = ''; state.pendingImg = ''; state.pendingIntent = null; state.pendingA = ''; await render();
+    state.busy = false; state.pendingQ = ''; state.pendingImgs = []; state.pendingIntent = null; state.pendingA = ''; await render();
     window.scrollTo(0, document.body.scrollHeight);
   }
 }
@@ -1508,47 +1548,111 @@ const sheets = [];
 function openSheet(html){
   const bd = document.createElement('div'); bd.className='backdrop';
   bd.innerHTML = `<div class="sheet"><div class="grab"></div>${html}</div>`;
-  bd.addEventListener('click', e=>{ if(e.target === bd) closeSheet(); });
+  bd.addEventListener('click', e=>{ if(e.target === bd){ if(bd._onBackdrop) bd._onBackdrop(); else closeSheet(); } });
   document.body.appendChild(bd); sheets.push(bd);
   document.body.style.overflow='hidden';
   updateJump();
   return bd.querySelector('.sheet');
 }
 function closeSheet(){
-  const bd = sheets.pop(); if(bd) bd.remove();
+  const bd = sheets.pop(); if(bd){ if(bd._onClosed) bd._onClosed(); bd.remove(); }
   if(!sheets.length) document.body.style.overflow='';
   updateJump();
 }
 
+/* ========= 背景照片辨識 ========= */
+const JOBS = new Map();   // mealId -> 進行中的辨識
+const RECOG_HINT = '辨識中，請先不要離開 APP';
+function blobToBase64(blob){
+  return new Promise((res, rej)=>{ const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+}
+function startRecognition(base64s, date, mealType, entries){
+  // entries：編輯視窗中這次加入的照片物件，存入資料庫後會帶有 id
+  const job = {entries: entries || [], ids: [], running: true, mealId: null, editor: null, cancelled: false};
+  job.pendingIds = () => [...job.ids, ...job.entries.map(e=>e.id)].filter(Boolean);
+  (async()=>{
+    let got = [], err = '';
+    try{
+      const ctx = await buildContext(date, mealType);
+      const r = await callGemini([...base64s.map(b=>({inline_data:{mime_type:'image/jpeg', data:b}})), {text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n（附上 ${base64s.length} 張餐點照片，全部屬於同一筆${MEAL_NAME[mealType]||'餐點'}。只需要辨識品項填入 meals；可以辨識時 reply 給空字串，無法辨識時 meals 給空陣列，並在 reply 用一句話說明原因。）`}], await systemPrompt());
+      const src = Array.isArray(r.meals) ? r.meals.flatMap(m=>Array.isArray(m && m.items) ? m.items : []) : (Array.isArray(r.items) ? r.items : []);
+      got = src.filter(i=>i && i.name).map(normItem);
+      if(!got.length) err = r.reply || '照片中找不到可辨識的食物，請換一張照片或手動輸入';
+    }catch(e){ err = e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message; }
+    job.running = false;
+    if(job.mealId) JOBS.delete(job.mealId);
+    if(job.cancelled) return;
+    if(job.mealId) await applyRecognition(job, got, err);
+    if(job.editor) job.editor(got, err);
+    if(state.tab === 'today') render();
+  })();
+  return job;
+}
+async function applyRecognition(job, got, err){
+  const m = await DB.meals.get(job.mealId); if(!m) return;
+  const pend = job.pendingIds().length ? job.pendingIds() : (m.pendingIds || []);
+  if(!err){
+    await DB.meals.update(m.id, {items:[...m.items, ...got], pending:false, pendingIds:[], failReason:'', updatedAt:Date.now()});
+    return;
+  }
+  const keep = photoIdsOf(m).filter(id=>!pend.includes(id));
+  if(!m.items.length && !job.editor){
+    await DB.meals.delete(m.id);
+    await deletePhotosIfUnused([...pend, ...keep]);
+    toast('辨識失敗：' + err, 5000);
+  } else {
+    await DB.meals.update(m.id, {photoIds:keep, photoId:keep[0]||null, pending:false, pendingIds:[], failReason: job.editor ? '' : err});
+    await deletePhotosIfUnused(pend);
+  }
+}
+async function retryRecognition(mealId){
+  if(!S.apiKey){ toast('拍照辨識需要 API 金鑰，請先到設定輸入'); return; }
+  const m = await DB.meals.get(mealId); if(!m) return;
+  const ids = (m.pendingIds || []).length ? m.pendingIds : photoIdsOf(m);
+  const base64s = [];
+  for(const id of ids){ const p = await DB.photos.get(id); if(p) base64s.push(await blobToBase64(p.blob)); }
+  if(!base64s.length){ await DB.meals.update(mealId, {pending:false, pendingIds:[]}); render(); return; }
+  await DB.meals.update(mealId, {pending:true, pendingIds:ids, failReason:''});
+  const job = startRecognition(base64s, m.date, m.mealType);
+  job.ids = ids; job.mealId = mealId; JOBS.set(mealId, job);
+  render();
+}
+
 /* ========= 餐點編輯 ========= */
 async function openMealEditor(opt){
-  // opt: {id?, date, mealType, items, comment, photoBlob?, photoId?, sourceText, isNew}
+  // opt: {id?, date, mealType, items, comment, photoBlob?, photoId?, photoIds?, sourceText, isNew, manual?}
   let items = opt.items.map(i=>({...i}));
   let mealType = opt.mealType;
-  const photoSrcUrl = opt.photoBlob ? URL.createObjectURL(opt.photoBlob) : (opt.photoId ? await photoSrc(opt.photoId) : '');
+  let photos = photoIdsOf(opt).map(id=>({id}));
+  if(opt.photoBlob) photos.push({blob:opt.photoBlob, url:URL.createObjectURL(opt.photoBlob)});
+  const removedIds = [];
+  let job = opt.id ? (JOBS.get(opt.id) || null) : null;   // 這筆餐點在背景辨識中
   const sh = openSheet(`<div class="between"><h2>${opt.manual?'新增餐點':opt.isNew?'確認餐點':'編輯餐點'}</h2><span class="small muted">${md2(opt.date)}</span></div>
     <div class="seg" id="me-type"></div>
-    <div id="me-photobox">${photoSrcUrl?`<img src="${photoSrcUrl}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-top:12px">`:''}</div>
+    <div id="me-photobox"></div>
+    <div class="notice" id="me-msg" hidden style="background:var(--bad-soft);color:var(--bad);margin-top:12px"></div>
     ${opt.isNew && opt.comment?'<p class="small muted" style="margin:10px 2px 0">AI 估算值僅供參考，份量或數值不對請直接修改。</p>':''}
     <div id="me-items"></div>
+    <p class="small" id="me-hint" hidden style="margin:0 2px 8px;color:var(--warn)">${RECOG_HINT}，也可以點視窗外關閉，完成後會自動寫入</p>
     <div class="btns" style="gap:6px"><button class="btn ghost sm" id="me-cam" style="flex:1;padding:8px 2px;font-size:13px">照片</button><button class="btn ghost sm" id="me-food" style="flex:1;padding:8px 2px;font-size:13px">常用食品</button><button class="btn ghost sm" id="me-add" style="flex:1;padding:8px 2px;font-size:13px">空白自填</button></div>
     <div class="totals num" id="me-tot"></div>
     ${opt.comment?`<details class="comment card" style="padding:0 14px" ${opt.isNew?'open':''}><summary>教練點評</summary><div class="md">${md(opt.comment)}</div></details>`:''}
     <div class="btns" style="margin-top:12px">${opt.isNew?'<button class="btn danger" id="me-cancel" style="flex:1">放棄</button>':'<button class="btn danger" id="me-del" style="flex:1">刪除</button>'}<button class="btn" id="me-save" style="flex:2">儲存</button></div>`);
+  const $s = q => sh.querySelector(q);
   const sync = () => {
     sh.querySelectorAll('.item').forEach((el,idx)=>{
       const g = n => el.querySelector(`[data-f="${n}"]`).value;
       items[idx] = {...items[idx], name:g('name'), amount:g('amount'), kcal:num(g('kcal')), protein:num(g('protein')), carb:num(g('carb')), fat:num(g('fat'))};
     });
   };
-  const drawType = () => { sh.querySelector('#me-type').innerHTML = MEALS.map(([k,n])=>`<button class="${mealType===k?'on':''}" data-k="${k}">${n}</button>`).join(''); };
+  const drawType = () => { $s('#me-type').innerHTML = MEALS.map(([k,n])=>`<button class="${mealType===k?'on':''}" data-k="${k}">${n}</button>`).join(''); };
   const drawTot = () => {
-    const tot = sh.querySelector('#me-tot'), save = sh.querySelector('#me-save');
+    const tot = $s('#me-tot'), save = $s('#me-save');
     tot.hidden = !items.length;
     save.disabled = !items.some(i=>String(i.name||'').trim());
     const s = sumItems(items); tot.innerHTML = `<div><b>${fmt(s.kcal)}</b><span>大卡</span></div><div><b>${fmt(s.protein)}</b><span>蛋白質 g</span></div><div><b>${fmt(s.carb)}</b><span>碳水 g</span></div><div><b>${fmt(s.fat)}</b><span>脂肪 g</span></div>`; };
   const draw = () => {
-    sh.querySelector('#me-items').innerHTML = items.length ? items.map((i,idx)=>`<div class="item" data-idx="${idx}">
+    $s('#me-items').innerHTML = items.length ? items.map((i,idx)=>`<div class="item" data-idx="${idx}">
       <div class="item-head"><input class="in" data-f="name" value="${esc(i.name)}" placeholder="食物名稱"><button class="xbtn" data-del="${idx}" aria-label="刪除">×</button></div>
       <input class="in amount" data-f="amount" value="${esc(i.amount)}" placeholder="份量，例如 1 個便當、半碗">
       <div class="item-grid">
@@ -1558,67 +1662,112 @@ async function openMealEditor(opt){
         <label>脂肪 g<input class="in num" data-f="fat" inputmode="decimal" value="${i.fat}"></label>
       </div>
       ${i.foodId?'<div class="small muted" style="margin-top:4px">來自常用食品</div>':`<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn sm" data-savefood="${idx}">存為常用食品</button></div>`}
-    </div>`).join('') : '<div class="empty">尚無品項<br>請用下方「照片」「常用食品」或「空白自填」新增</div>';
+    </div>`).join('') : `<div class="empty">${job && job.running ? '辨識中…' : '尚無品項<br>請用下方「照片」「常用食品」或「空白自填」新增'}</div>`;
     drawTot();
   };
-  drawType(); draw();
-  sh.querySelector('#me-type').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; mealType=b.dataset.k; drawType(); });
-  sh.querySelector('#me-items').addEventListener('input', ()=>{ sync(); drawTot(); });
-  sh.querySelector('#me-items').addEventListener('click', async e=>{
+  const drawPhotos = () => {
+    const box = $s('#me-photobox');
+    box.innerHTML = photos.length ? `<div class="pstrip ${photos.length===1?'one':''}">${photos.map((ph,i)=>`<div class="pcell"><img ${ph.id?`data-photo="${ph.id}"`:`src="${ph.url}"`} alt=""><button class="pdel" data-pdel="${i}" aria-label="移除照片">×</button></div>`).join('')}</div>` : '';
+    hydratePhotos(box);
+  };
+  const setBusy = on => {
+    const cam = $s('#me-cam'); cam.disabled = on; cam.textContent = on ? '辨識中…' : '照片';
+    $s('#me-hint').hidden = !on;
+  };
+  const showFail = reason => { const msg = $s('#me-msg'); msg.textContent = '辨識失敗：' + reason; msg.hidden = false; };
+  // 辨識完成時，若視窗還開著就直接更新畫面
+  const onDone = (got, err) => {
+    if(!sh.isConnected) return;
+    setBusy(false);
+    if(err){
+      const pend = job.pendingIds();
+      photos = photos.filter(x=>!job.entries.includes(x) && !(x.id && pend.includes(x.id)));
+      drawPhotos(); showFail(err);
+    } else { sync(); items.push(...got); }
+    job = null; draw();
+  };
+  if(job){ job.editor = onDone; setBusy(true); }
+  else if(opt.failReason) showFail(opt.failReason);
+  sh.parentElement._onClosed = () => { if(job) job.editor = null; };
+
+  $s('#me-photobox').addEventListener('click', e=>{
+    const b = e.target.closest('[data-pdel]'); if(!b) return;
+    const ph = photos.splice(Number(b.dataset.pdel),1)[0]; if(ph && ph.id) removedIds.push(ph.id); drawPhotos();
+  });
+  drawPhotos(); drawType(); draw();
+  $s('#me-type').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; mealType=b.dataset.k; drawType(); });
+  $s('#me-items').addEventListener('input', ()=>{ sync(); drawTot(); });
+  $s('#me-items').addEventListener('click', async e=>{
     const del = e.target.closest('[data-del]');
     if(del){ sync(); items.splice(Number(del.dataset.del),1); draw(); return; }
     const sf = e.target.closest('[data-savefood]');
     if(sf){ sync(); const i = items[Number(sf.dataset.savefood)]; openFoodForm({name:i.name, servingDesc:i.amount||'1 份', kcal:i.kcal, protein:i.protein, carb:i.carb, fat:i.fat}); }
   });
-  sh.querySelector('#me-add').onclick = () => { sync(); items.push({name:'',amount:'',kcal:0,protein:0,carb:0,fat:0}); draw(); };
-  sh.querySelector('#me-food').onclick = () => { sync(); openFoodPicker(picked=>{ items.push(...picked); draw(); }); };
-  const recognize = async file => {
-    const cam = sh.querySelector('#me-cam');
-    cam.disabled = true; cam.textContent = '辨識中…';
+  $s('#me-add').onclick = () => { sync(); items.push({name:'',amount:'',kcal:0,protein:0,carb:0,fat:0}); draw(); };
+  $s('#me-food').onclick = () => { sync(); openFoodPicker(picked=>{ items.push(...picked); draw(); }); };
+  const recognize = async files => {
+    const room = MAX_PHOTOS - photos.length;
+    if(room <= 0){ toast(`每筆餐點最多 ${MAX_PHOTOS} 張照片`); return; }
+    if(files.length > room) toast(`最多 ${MAX_PHOTOS} 張，已加入前 ${room} 張`);
+    $s('#me-msg').hidden = true; setBusy(true);
     try{
       sync();
-      const ph = await prepPhoto(file);
-      opt.photoBlob = ph.blob; opt.newPhoto = true;
-      sh.querySelector('#me-photobox').innerHTML = `<img src="${ph.preview}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-top:12px">`;
-      const ctx = await buildContext(opt.date, mealType);
-      const r = await callGemini([{inline_data:{mime_type:'image/jpeg', data:ph.base64}}, {text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n（附上一張餐點照片，記錄為${MEAL_NAME[mealType]}）`}], await systemPrompt());
-      const got = (Array.isArray(r.items) ? r.items.filter(i=>i && i.name) : []).map(normItem);
-      if(!got.length) toast(r.reply || r.answer || '照片無法辨識，請手動輸入', 4000);
-      items.push(...got); if(r.reply || r.comment) opt.comment = r.reply || r.comment; opt.fromPhoto = got.length > 0; draw();
-    }catch(err){ toast(err.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : err.message, 4200); }
-    finally{ cam.disabled = false; cam.textContent = '照片'; }
+      const entries = [], base64s = [];
+      for(const f of files.slice(0, room)){ const ph = await prepPhoto(f); base64s.push(ph.base64); const en = {blob:ph.blob, url:ph.preview}; entries.push(en); photos.push(en); }
+      drawPhotos();
+      job = startRecognition(base64s, opt.date, mealType, entries);
+      job.editor = onDone;
+      if(opt.id){ job.mealId = opt.id; }   // 編輯既有餐點：視窗關掉後結果會補進這一筆
+      draw();
+    }catch(err){ setBusy(false); showFail(err.message); }
   };
   const needKey = () => { if(!S.apiKey){ toast('拍照辨識需要 API 金鑰，請先到設定輸入'); return true; } return false; };
-  sh.querySelector('#me-cam').onclick = () => { if(!needKey()) pickImage(recognize); };
-  sh.querySelector('#me-save').onclick = async () => {
+  $s('#me-cam').onclick = () => { if(!needKey()) pickImage(recognize); };
+
+  // 存入資料庫；辨識中時標記為辨識中，完成後自動補上品項
+  const persist = async () => {
     sync();
-    const clean = items.filter(i=>i.name.trim()).map(normItem);
-    if(!clean.length){ toast('至少需要一個品項'); return; }
-    let photoId = opt.photoId || null;
-    if(opt.photoBlob && (!photoId || opt.newPhoto)){
-      if(photoId){ await DB.photos.delete(photoId); photoURL.delete(photoId); }
-      photoId = await DB.photos.add({blob:opt.photoBlob});
-    }
-    const rec = {date:opt.date, mealType, items:clean, photoId, comment:opt.comment||'', sourceText:opt.sourceText||'', updatedAt:Date.now()};
-    let mealId = opt.id;
-    if(opt.id) await DB.meals.update(opt.id, rec);
+    const clean = items.filter(i=>String(i.name||'').trim()).map(normItem);
+    for(const ph of photos) if(!ph.id) ph.id = await DB.photos.add({blob:ph.blob});
+    const ids = photos.map(ph=>ph.id);
+    const running = !!(job && job.running);
+    const rec = {date:opt.date, mealType, items:clean, photoId:ids[0]||null, photoIds:ids, comment:opt.comment||'', sourceText:opt.sourceText||'',
+      pending:running, pendingIds: running ? job.pendingIds().filter(id=>ids.includes(id)) : [], failReason:'', updatedAt:Date.now()};
+    let id = opt.id;
+    if(id) await DB.meals.update(id, rec);
     else {
-      mealId = await DB.meals.add({...rec, createdAt:Date.now()});
+      id = await DB.meals.add({...rec, createdAt:Date.now()});
       for(const i of clean) if(i.foodId){ const f = await DB.foods.get(i.foodId); if(f) await DB.foods.update(f.id,{useCount:(f.useCount||0)+1}); }
     }
-    if(opt.fromPhoto && opt.comment){
-      const sm = sumItems(clean);
-      await DB.chats.add({date:opt.date, q:'', photoId, mealId, a:`**已記錄：${MEAL_NAME[mealType]}** ${clean.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g\n\n${opt.comment}`, createdAt:Date.now()});
-    }
+    opt.id = id;
+    if(running){ job.mealId = id; job.editor = null; JOBS.set(id, job); }
+    await deletePhotosIfUnused(removedIds);
+    return id;
+  };
+  // 點視窗外：辨識中就背景繼續並先存成卡片；沒在辨識就直接關閉
+  sh.parentElement._onBackdrop = async () => {
+    if(job && job.running){ await persist(); closeSheet(); toast('背景辨識中，完成後會自動寫入'); render(); }
+    else closeSheet();
+  };
+  $s('#me-save').onclick = async () => {
+    sync();
+    if(!items.some(i=>String(i.name||'').trim())){ toast('至少需要一個品項'); return; }
+    await persist();
     closeSheet(); toast('已儲存'); render();
   };
-  const cancel = sh.querySelector('#me-cancel');
-  if(cancel) cancel.onclick = () => { if(!items.length && !opt.photoBlob) { closeSheet(); return; } if(confirm('確定放棄這筆餐點？')) closeSheet(); };
-  const del = sh.querySelector('#me-del');
+  const cancel = $s('#me-cancel');
+  if(cancel) cancel.onclick = () => {
+    if(!items.length && !photos.length && !job) { closeSheet(); return; }
+    if(!confirm('確定放棄這筆餐點？')) return;
+    if(job){ job.cancelled = true; job = null; }
+    closeSheet();
+  };
+  const del = $s('#me-del');
   if(del) del.onclick = async () => {
     if(!confirm('確定刪除這筆餐點？')) return;
+    if(job){ job.cancelled = true; JOBS.delete(opt.id); job = null; }
     await DB.meals.delete(opt.id);
-    if(opt.photoId){ await DB.photos.delete(opt.photoId); photoURL.delete(opt.photoId); }
+    await deletePhotosIfUnused([...photoIdsOf(opt), ...removedIds, ...photos.map(p=>p.id).filter(Boolean)]);
     closeSheet(); toast('已刪除'); render();
   };
 }
@@ -1812,8 +1961,8 @@ function renderSettings(v){
     <p class="small muted">金鑰只存在這支手機。免費方案的內容可能被 Google 用於改善模型。</p>
     <label class="field"><span>API 金鑰</span><div class="keybox"><input class="in" id="s-apiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(S.apiKey)}"><button type="button" class="eye" data-eye="s-apiKey" aria-label="顯示或隱藏金鑰">${EYE_OPEN}</button></div></label>
     <div class="btns"><button class="btn ghost sm" data-act="testKey">測試金鑰</button><button class="btn ghost sm" data-act="listModels">重新偵測模型</button></div>
-    <label class="field"><span>主要模型</span><select class="in" id="s-model"><option value="${esc(S.model)}">${esc(S.model)}</option></select></label>
-    <label class="field"><span>額度用完時改用</span><select class="in" id="s-fallbackModel"><option value="${esc(S.fallbackModel)}">${esc(S.fallbackModel||'不使用')}</option></select></label>
+    <label class="field"><span>照片辨識模型</span><select class="in" id="s-model"><option value="${esc(S.model)}">${esc(S.model)}</option></select></label>
+    <label class="field"><span>文字對話模型</span><select class="in" id="s-fallbackModel"><option value="${esc(S.fallbackModel)}">${esc(S.fallbackModel||'不使用')}</option></select></label>
     <p class="small muted" id="modelInfo"></p>
   </section>
 
@@ -1900,12 +2049,14 @@ const ACTIONS = {
   openCal: () => openCalSheet(),
   goToday: () => goDate(today()),
   mealType: b => { state.mealType = b.dataset.k; renderMealSeg(); },
-  pickPhoto: () => pickImage(setComposerPhoto),
-  clearPhoto: () => { state.photo = null; renderMealSeg(); updateComposeHeight(); },
+  pickPhoto: () => pickImage(addComposerPhotos),
+  removePhoto: b => { state.photos.splice(Number(b.dataset.i),1); renderMealSeg(); updateComposeHeight(); },
+  clearPhoto: () => { state.photos = []; renderMealSeg(); updateComposeHeight(); },
   quickFood: () => openFoodPicker(items => openMealEditor({date:state.date, mealType:defaultMealType(), items, comment:'', isNew:true})),
   send: () => send(),
   review: () => review(),
   editMeal: async b => { const m = await DB.meals.get(Number(b.dataset.id)); if(m) openMealEditor({...m, isNew:false}); },
+  retryMeal: b => retryRecognition(Number(b.dataset.id)),
   addMeal: () => openMealEditor({date:state.date, mealType:defaultMealType(), items:[], comment:'', isNew:true, manual:true}),
   addAct: () => openActEditor(null),
   editAct: async b => { if(b.dataset.id){ const a = await DB.activities.get(Number(b.dataset.id)); if(a) openActEditor(a); } else openActEditor(null, b.dataset.kind); },
@@ -1963,9 +2114,7 @@ document.addEventListener('click', e=>{
   const fn = ACTIONS[b.dataset.act]; if(fn){ e.preventDefault(); fn(b, e); }
 });
 $('#photoInput').addEventListener('change', async e=>{
-  const file = e.target.files[0]; e.target.value=''; if(!file) return;
-  try{ state.photo = await prepPhoto(file); renderMealSeg(); updateComposeHeight(); $('#msg').focus(); }
-  catch(err){ toast(err.message); }
+  const fs = [...e.target.files]; e.target.value=''; if(fs.length) addComposerPhotos(fs);
 });
 $('#labelInput').addEventListener('change', e=>{ const file = e.target.files[0]; e.target.value=''; if(file) scanLabel(file); });
 document.addEventListener('change', async e=>{
