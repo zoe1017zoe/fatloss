@@ -353,7 +353,7 @@ DB.version(1).stores({
 DB.version(2).stores({ adjustments: '++id, date, status' });
 
 const DEFAULTS = {
-  apiKey: '', model: 'gemini-flash-latest', fallbackModel: 'gemini-flash-lite-latest',
+  apiKey: '', model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.6-flash', liteModel: 'gemini-3.5-flash-lite', modelManual: true, modelCfgVer: 3,
   age: 20, height: 180, weight: 83, sex: 'male',
   bodyNote: '四肢正常，但脂肪主要囤積在軀幹（腹部、側腰、小腹與胸部）',
   phase: '減脂並保留肌肉',
@@ -448,6 +448,11 @@ const TABS = [['today','今日',ICON.today],['cal','紀錄',ICON.cal],['trend','
 async function loadSettings(){
   const r = await DB.kv.get('settings');
   S = {...DEFAULTS, ...(r ? r.value : {})};
+  if(r && r.value && (r.value.modelCfgVer || 0) < 3){
+    // 舊版使用者：一律改用目前指定的模型組合
+    S.model = DEFAULTS.model; S.fallbackModel = DEFAULTS.fallbackModel; S.liteModel = DEFAULTS.liteModel;
+    S.modelManual = true; S.modelCfgVer = 3; await saveSettings();
+  }
   if(!S.startDate){ S.startDate = today(); await saveSettings(); }
 }
 async function saveSettings(){ await DB.kv.put({key:'settings', value:S}); }
@@ -581,7 +586,7 @@ async function createAdjustment(){
           `APP 依規則產生的調整：目標熱量 ${pr.from.kcalMin}–${pr.from.kcalMax} → ${pr.to.kcalMin}–${pr.to.kcalMax}；蛋白質 ${pr.from.pMin}–${pr.from.pMax} → ${pr.to.pMin}–${pr.to.pMax} g；步數 ${pr.from.stepGoal} → ${pr.to.stepGoal}；重訓每週 ${trainTxt(pr.from.trainMin,pr.from.trainMax)} → ${trainTxt(pr.to.trainMin,pr.to.trainMax)}`,
           `調整原因：${pr.reasons.join(' ')}`
         ].join('\n');
-        const r = await callGemini([{text:`【兩週回顧資料】\n${lines}\n\n【學員訊息】\n請寫給學員的兩週回顧，type 為 "question"，reply 包含：「**兩週表現**」（做得好與需要改進的地方）、「**這次調整**」（用白話說明為什麼這樣調，數字以 APP 的調整為準，不可自行更改）、「**接下來兩週重點**」（2–3 點具體行動）。總長 200 字內。`}], await systemPrompt());
+        const r = await callGemini([{text:`【兩週回顧資料】\n${lines}\n\n【學員訊息】\n請寫給學員的兩週回顧，type 為 "question"，reply 最多 3 點、每點一句話，依序為：兩週表現、這次為什麼這樣調整（數字以 APP 的調整為準，不可自行更改）、接下來兩週的重點。`}], await systemPrompt());
         await DB.adjustments.update(id, {comment: r.reply || r.answer || r.comment || ''});
         render();
       }catch(e){ /* AI 說明失敗時仍保留規則說明 */ }
@@ -687,7 +692,7 @@ async function finishWizard(){
   W = null; $('#wizard').hidden = true; $('#wizard').innerHTML = ''; document.body.style.overflow = '';
   state.tab = 'today'; state.date = today(); render();
   toast('設定完成，開始記錄吧');
-  if(S.apiKey) autoPickModels(S.apiKey).catch(()=>{});
+  if(S.apiKey) refreshModelList(S.apiKey).catch(()=>{});
 }
 document.getElementById('wizard').addEventListener('click', e=>{
   if(!W) return;
@@ -783,120 +788,213 @@ async function fetchT(url, opts={}, ms=45000){
   catch(e){ if(e.name === 'AbortError'){ const err = new Error('TIMEOUT'); err.timeout = true; throw err; } throw e; }
   finally{ clearTimeout(timer); }
 }
-function classifyModels(list){
-  const items = list.filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>{
-    const id = cleanModel(m.name), l = id.toLowerCase();
-    const ver = parseFloat((l.match(/(\d+(?:\.\d+)?)/)||[])[1]||0);
-    let tag = '不建議', rank = 4;
-    if(/image|tts|audio|live|embed|robotics|computer|veo|imagen|lyria|aqa|nano/.test(l)){ tag='不適用'; rank=5; }
-    else if(/gemma/.test(l)){ tag='開源模型，不建議'; rank=4; }
-    else if(/pro/.test(l)){ tag='可能需付費'; rank=4; }
-    else if(/preview|exp/.test(l)){ tag='預覽版，可能不穩定'; rank=3; }
-    else if(/latest/.test(l)){ tag='自動指向最新版，可能不穩定'; rank=3; }
-    else if(/flash-lite/.test(l)){ tag='速度快、準確度較低'; rank=2; }
-    else if(/flash/.test(l)){ tag='正式版'; rank=1; }
-    return {id, tag, rank, ver};
-  }).sort((a,b)=>a.rank-b.rank || b.ver-a.ver || a.id.length-b.id.length);
-  const rec = items.find(i=>i.rank===1) || items.find(i=>i.rank===3 && /flash/.test(i.id) && !/lite/.test(i.id));
-  const recLite = items.find(i=>i.rank===2) || items.find(i=>i.rank===3 && /flash-lite/.test(i.id));
-  if(rec) rec.tag = '★ 推薦照片辨識'; if(recLite) recLite.tag = '★ 推薦文字對話';
-  return {items, rec: rec && rec.id, recLite: recLite && recLite.id};
+const LS = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; }catch(_){ return d; } };
+const LSset = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(_){} };
+let MODEL_LIST = LS('modelList', []);      // 可用的 Flash、Flash-Lite 正式版 [{id, lite, ver}]
+const MODEL_STATUS = LS('modelStatus', {}); // id -> {state:'ok'|'redirect'|'unavail', actual}
+const EXHAUSTED = LS('exhausted', {});      // id -> 額度恢復的時間（毫秒）
+const modelVer = id => parseFloat((String(id).match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
+function isStableFlash(id){
+  const l = id.toLowerCase();
+  return /flash/.test(l) && !/preview|exp|latest|image|tts|audio|live|embed|robotics|computer|veo|imagen|lyria|aqa|nano|gemma|pro|thinking/.test(l);
 }
-async function fetchModels(key){
+function classifyModels(list){
+  return list.filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>cleanModel(m.name)).filter(isStableFlash)
+    .map(id=>({id, lite:/flash-lite/i.test(id), ver:modelVer(id)}))
+    .sort((a,b)=>(a.lite-b.lite) || b.ver-a.ver || a.id.length-b.id.length);
+}
+function nextResetTime(){  // 每日額度在美國太平洋時間午夜重置
+  const now = new Date();
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {timeZone:'America/Los_Angeles', hour:'numeric', minute:'numeric', second:'numeric', hourCycle:'h23'}).formatToParts(now).map(x=>[x.type, x.value]));
+  return now.getTime() + (86400 - ((+p.hour)*3600 + (+p.minute)*60 + (+p.second))) * 1000;
+}
+const hhmm = ts => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+function markExhausted(id, daily){ EXHAUSTED[id] = daily ? nextResetTime() : Date.now() + 60000; LSset('exhausted', EXHAUSTED); }
+const isExhausted = id => !!EXHAUSTED[id] && EXHAUSTED[id] > Date.now();
+const usable = id => { const st = MODEL_STATUS[id]; return !(st && (st.state === 'redirect' || st.state === 'unavail')); };
+const sameModel = (actual, m) => { const a = cleanModel(actual); return a === m || a.startsWith(m + '-') || m.startsWith(a + '-'); };
+function modelLabel(id){ const suf = (id.match(/-(\d{3})$/) || [])[1]; return prettyModel(id) + (suf ? ` (${suf})` : ''); }
+function modelTag(id){
+  const st = MODEL_STATUS[id];
+  if(st && st.state === 'redirect') return `已停用，實際由 ${prettyModel(st.actual)} 處理`;
+  if(st && st.state === 'unavail') return '無法使用';
+  if(isExhausted(id)) return `今日額度已用完，${hhmm(EXHAUSTED[id])} 恢復`;
+  return /flash-lite/i.test(id) ? '速度快、準確度較低' : '正式版';
+}
+// 依用途排出模型順序，一律由好往差
+function modelChain(route){
+  const lites = MODEL_LIST.filter(x=>x.lite).map(x=>x.id), flashes = MODEL_LIST.filter(x=>!x.lite).map(x=>x.id);
+  let chain;
+  if(route === 'qa') chain = [S.liteModel, ...lites, S.fallbackModel, S.model];
+  else {
+    const floor = modelVer(S.fallbackModel);
+    chain = [S.model, S.fallbackModel, ...flashes.filter(id=>!floor || modelVer(id) < floor), S.liteModel, ...lites];
+  }
+  chain = chain.map(cleanModel).filter((m,i,a)=>m && a.indexOf(m) === i);
+  const ok = chain.filter(usable);
+  return ok.length ? ok : chain;
+}
+async function refreshModelList(key){
   const res = await fetchT(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`, {}, 20000);
   const j = await res.json().catch(()=>({}));
   if(!res.ok) throw Object.assign(new Error((j.error && j.error.message) || res.statusText), {status:res.status});
-  return classifyModels(j.models || []);
+  MODEL_LIST = classifyModels(j.models || []); LSset('modelList', MODEL_LIST);
+  if(!MODEL_LIST.some(x=>x.id === S.liteModel)){ const l = MODEL_LIST.find(x=>x.lite); if(l){ S.liteModel = l.id; await saveSettings(); } }
+  return MODEL_LIST;
 }
-async function autoPickModels(key){
-  const r = await fetchModels(key);
-  if(!S.modelManual && r.rec){ S.model = r.rec; S.fallbackModel = r.recLite || r.rec; await saveSettings(); }
-  return r;
+const MODEL_FIELDS = [['#s-model','model'], ['#s-fallbackModel','fallbackModel'], ['#s-liteModel','liteModel']];
+function drawModelSelects(){
+  for(const [sel, k] of MODEL_FIELDS){
+    const el = $(sel); if(!el) continue; const cur = S[k];
+    el.innerHTML = (MODEL_LIST.some(i=>i.id === cur) || !cur ? '' : `<option value="${esc(cur)}" selected>${esc(modelLabel(cur))}（不在可用清單中）</option>`)
+      + MODEL_LIST.map(i=>`<option value="${esc(i.id)}" ${i.id === cur ? 'selected' : ''}>${esc(modelLabel(i.id))}（${modelTag(i.id)}）</option>`).join('');
+  }
 }
-async function fillModelSelects(){
+const QUOTA_LINK = '每日額度請到 <a href="https://aistudio.google.com/rate-limit" target="_blank" rel="noopener">AI Studio 額度頁</a> 查看。';
+async function fillModelSelects(askCheck=false){
   const keyEl = $('#s-apiKey'), info = $('#modelInfo'); if(!keyEl || !info) return;
+  drawModelSelects();
   const key = keyEl.value.trim();
   if(!key){ info.textContent = '輸入金鑰後會自動列出可用模型。'; return; }
   info.textContent = '偵測可用模型中…';
   try{
     if(key !== S.apiKey){ S.apiKey = key; await saveSettings(); }
-    const r = await autoPickModels(key);
-    const opts = cur => (r.items.some(i=>i.id===cur) || !cur ? '' : `<option value="${esc(cur)}" selected>${esc(cur)}（不在可用清單中）</option>`)
-      + r.items.map(i=>`<option value="${esc(i.id)}" ${i.id===cur?'selected':''}>${esc(i.id)}（${i.tag}）</option>`).join('');
-    $('#s-model').innerHTML = opts(S.model);
-    $('#s-fallbackModel').innerHTML = opts(S.fallbackModel);
-    info.textContent = `偵測到 ${r.items.length} 個可用模型。照片辨識與文字對話各用一個，其中一個額度用完會自動改用另一個。`;
+    await refreshModelList(key); drawModelSelects();
+    info.innerHTML = `偵測到 ${MODEL_LIST.length} 個可用的 Flash 模型。${QUOTA_LINK}`;
+    if(askCheck && MODEL_LIST.length && confirm(`要檢查 ${MODEL_LIST.length} 個模型嗎？\n每個模型會用掉 1 次每日額度，約需 ${Math.max(1, Math.ceil(MODEL_LIST.length*12.5/60))} 分鐘。`)) await checkModels();
   }catch(e){ info.textContent = friendlyError(e); }
 }
-
-const THINK_OK = (()=>{ try{ return JSON.parse(localStorage.getItem('thinkOK')) || {}; }catch(_){ return {}; } })();  // 記住每個模型可用的思考設定，重新開啟也不用再試
+let checkingModels = false;
+async function checkModels(){
+  if(checkingModels) return; checkingModels = true;
+  const list = MODEL_LIST.map(x=>x.id), say = t => { const el = $('#modelInfo'); if(el) el.innerHTML = t; };
+  const body = {contents:[{role:'user', parts:[{text:'回覆 {"ok":true}'}]}], generationConfig:{responseMimeType:'application/json', temperature:0, maxOutputTokens:256}};
+  for(let i=0; i<list.length; i++){
+    const m = list[i];
+    say(`檢查中 ${i+1}/${list.length}：${esc(modelLabel(m))}…（請先不要離開設定頁）`);
+    try{
+      const r = await requestModel(m, body);
+      if(r.ok){ MODEL_STATUS[m] = r.modelVersion && !sameModel(r.modelVersion, m) ? {state:'redirect', actual:cleanModel(r.modelVersion)} : {state:'ok'}; delete EXHAUSTED[m]; }
+      else if(r.status === 429) markExhausted(m, r.daily);
+      else MODEL_STATUS[m] = {state:'unavail'};
+    }catch(_){}
+    LSset('modelStatus', MODEL_STATUS); LSset('exhausted', EXHAUSTED); drawModelSelects();
+    if(i < list.length-1) await new Promise(res=>setTimeout(res, 12500));
+  }
+  checkingModels = false;
+  say(`檢查完成，結果已標示在下拉選單中。${QUOTA_LINK}`);
+}
+const THINK_OK = LS('thinkOK', {});  // 記住每個模型可用的思考設定，重新開啟也不用再試
 function thinkOptions(m){
-  const v = (m.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1], ver = v ? parseFloat(v) : 0;
+  const ver = modelVer(m);
   if(ver >= 3) return [{thinkingLevel:'minimal'}, {thinkingLevel:'low'}, null];
   if(ver >= 2.5 && /flash/.test(m)) return [{thinkingBudget:0}, null];
   return [null];
 }
-async function geminiRequest(m, tc, body, onText){
+async function geminiRequest(m, tc, body){
   const gc = {...body.generationConfig}; if(tc) gc.thinkingConfig = tc;
-  const payload = JSON.stringify({...body, generationConfig:gc});
-  const base = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:`;
-  const key = `key=${encodeURIComponent(S.apiKey)}`;
-  const partsOf = j => (j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
-  if(!onText){
-    const res = await fetchT(base + 'generateContent?' + key, {method:'POST', headers:{'Content-Type':'application/json'}, body:payload});
-    const j = await res.json().catch(()=>({}));
-    if(!res.ok) return {ok:false, status:res.status, msg:(j.error && j.error.message) || res.statusText};
-    return {ok:true, txt:partsOf(j).filter(x=>x.text && !x.thought).map(x=>x.text).join(''), block:j.promptFeedback && j.promptFeedback.blockReason};
-  }
-  // 邊產生邊顯示：45 秒內沒有收到新內容才算逾時
-  const c = new AbortController(); let timer;
-  const arm = () => { clearTimeout(timer); timer = setTimeout(()=>c.abort(), 45000); };
-  arm();
-  try{
-    const res = await fetch(base + 'streamGenerateContent?alt=sse&' + key, {method:'POST', headers:{'Content-Type':'application/json'}, body:payload, signal:c.signal});
-    if(!res.ok){ const j = await res.json().catch(()=>({})); return {ok:false, status:res.status, msg:(j.error && j.error.message) || res.statusText}; }
-    const reader = res.body.getReader(), dec = new TextDecoder();
-    let buf = '', txt = '', block;
-    for(;;){
-      const {value, done} = await reader.read(); if(done) break; arm();
-      buf += dec.decode(value, {stream:true});
-      let i;
-      while((i = buf.indexOf('\n')) >= 0){
-        const line = buf.slice(0,i).trim(); buf = buf.slice(i+1);
-        if(!line.startsWith('data:')) continue;
-        let ev; try{ ev = JSON.parse(line.slice(5)); }catch(_){ continue; }
-        if(ev.error) return {ok:false, status:ev.error.code || 500, msg:ev.error.message};
-        if(ev.promptFeedback && ev.promptFeedback.blockReason) block = ev.promptFeedback.blockReason;
-        const add = partsOf(ev).filter(x=>x.text && !x.thought).map(x=>x.text).join('');
-        if(add){ txt += add; try{ onText(txt); }catch(_){} }
-      }
-    }
-    return {ok:true, txt, block};
-  }catch(e){
-    if(e.name === 'AbortError'){ const err = new Error('TIMEOUT'); err.timeout = true; throw err; }
-    throw e;
-  }finally{ clearTimeout(timer); }
+  const res = await fetchT(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${encodeURIComponent(S.apiKey)}`,
+    {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...body, generationConfig:gc})});
+  const j = await res.json().catch(()=>({}));
+  if(!res.ok) return {ok:false, status:res.status, msg:(j.error && j.error.message) || res.statusText, daily:/PerDay/i.test(JSON.stringify(j.error || ''))};
+  const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
+  return {ok:true, txt:parts.filter(x=>x.text && !x.thought).map(x=>x.text).join(''), block:j.promptFeedback && j.promptFeedback.blockReason, modelVersion:j.modelVersion || ''};
 }
-async function callGemini(parts, sys, temperature=0.4, onText=null){
+async function requestModel(m, body){
+  const same = (x,y) => JSON.stringify(x) === JSON.stringify(y);
+  const tries = (m in THINK_OK) ? [THINK_OK[m], ...thinkOptions(m).filter(x=>!same(x, THINK_OK[m]))] : thinkOptions(m);
+  let r;
+  for(const tc of tries){
+    r = await geminiRequest(m, tc, body);
+    if(r.ok){ THINK_OK[m] = tc; LSset('thinkOK', THINK_OK); break; }
+    if(!(r.status === 400 && tc)) break;  // 只有模型不支援該思考設定時才換下一種
+  }
+  return r;
+}
+function prettyModel(id){
+  const m = String(id||'').match(/gemini-([\d.]+)-(flash-lite|flash|pro)/i);
+  if(!m) return id;
+  return `${m[1]} ${m[2].toLowerCase()==='flash-lite'?'Flash-Lite':m[2].toLowerCase()==='pro'?'Pro':'Flash'}`;
+}
+function thinkLabel(tc){
+  if(!tc) return '一般思考';
+  if(tc.thinkingBudget === 0) return '不思考';
+  return ({minimal:'最少思考', low:'低度思考', medium:'中度思考', high:'高度思考'})[tc.thinkingLevel] || '一般思考';
+}
+// 日期由程式換算：{daysAgo} 或 {month, day}
+function resolveWhen(w, fallback){
+  if(!w || typeof w !== 'object') return fallback;
+  const t = today();
+  if(w.daysAgo !== null && w.daysAgo !== undefined && w.daysAgo !== '' && Number.isInteger(+w.daysAgo) && Math.abs(+w.daysAgo) <= 366) return addDays(t, -(+w.daysAgo));
+  const mo = +w.month, da = +w.day;
+  if(mo >= 1 && mo <= 12 && da >= 1 && da <= 31){
+    const y = parseYmd(t).getFullYear(); let d = `${y}-${pad(mo)}-${pad(da)}`;
+    if(diffDays(d, t) > 30) d = `${y-1}-${pad(mo)}-${pad(da)}`;
+    return d;
+  }
+  return fallback;
+}
+// 常用食品依份數由程式計算營養值
+async function resolveItems(raw){
+  const foods = await DB.foods.toArray(), out = [];
+  for(const i of raw){
+    if(!i || !(i.name || i.foodName)) continue;
+    const fname = String(i.foodName || '').trim(), sv = num(i.servings);
+    const f = fname ? (foods.find(x=>x.name === fname) || foods.find(x=>fname.includes(x.name) || x.name.includes(fname))) : null;
+    if(f && sv > 0){
+      out.push({name:f.name, amount:`${sv} 份（${f.servingDesc || '1 份'}）`, kcal:Math.round(f.kcal*sv), protein:Math.round(f.protein*sv), carb:Math.round(f.carb*sv), fat:Math.round(f.fat*sv), foodId:f.id});
+    } else out.push(normItem({...i, name:i.name || fname}));
+  }
+  return out;
+}
+// 今日進度由程式計算
+async function progressLine(date){
+  const d = await dayData(date), k = d.t.kcal, p = d.t.protein;
+  const kTxt = k < S.kcalMin ? `還可吃 ${fmt(S.kcalMin-k)}–${fmt(S.kcalMax-k)} 大卡` : k <= S.kcalMax ? '熱量已在目標範圍內' : `超出目標 ${fmt(k-S.kcalMax)} 大卡`;
+  const pTxt = p < S.pMin ? `蛋白質還差 ${fmt(S.pMin-p)}–${fmt(S.pMax-p)} g` : '蛋白質已達標';
+  return `**${date === today() ? '今日' : md2(date) + ' '}進度** 累計 ${fmt(k)} 大卡、蛋白質 ${fmt(p)} g；${kTxt}，${pTxt}${k > 0 && k < S.floor && date < today() ? `（低於安全底線 ${fmt(S.floor)} 大卡）` : ''}`;
+}
+// 判斷訊息類型：需要估計（記錄餐點、運動、體重）或推薦／問答
+function classifyMessage(text, hasPhotos){
+  if(hasPhotos) return 'est';
+  const t = String(text || '');
+  const STRONG = /(吃|喝|啃|嗑)了|(走|跑|練|騎|游|做|打|量|跳)了|剛(吃|喝|練|跑)|[0-9０-９一二兩三四五六七八九十百千萬半幾]+\s*(碗|份|杯|顆|個|片|盒|包|匙|湯匙|根|條|塊|串|罐|瓶|克|公克|g|毫升|ml|cc|大卡|卡|分鐘|小時|hr|公里|km|步|公斤|kg|組)/i;
+  const QUESTION = /[?？]|嗎|呢|吃什麼|吃啥|要吃|該吃|可以吃|能吃|推薦|建議|怎麼|如何|為什麼|為何|好不好|還能|還可以|多少|哪|是不是|有沒有|可不可以|幫我想/;
+  const WEAK = /早餐|午餐|中餐|晚餐|宵夜|點心|下午茶|便當|麵|飯|雞|豬|牛|魚|蛋|奶|豆漿|咖啡|飲料|水果|沙拉|乳清|燕麥|重訓|跑步|散步|游泳|健身|運動|體重/;
+  if(STRONG.test(t)) return 'est';
+  if(QUESTION.test(t)) return 'qa';
+  if(WEAK.test(t)) return 'est';
+  return 'est';  // 判斷不出來時用估計模型，寧可準確
+}
+async function callGemini(parts, sys, temperature=0.4, route=null){
   if(!S.apiKey) throw new Error('NO_KEY');
-  // 依用途分流：有照片先用照片辨識模型，純文字先用文字對話模型；額度用完互相替補
-  const hasImg = parts.some(x=>x.inline_data);
-  const models = (hasImg ? [S.model, S.fallbackModel] : [S.fallbackModel, S.model]).map(cleanModel).filter((m,i,a)=>m && a.indexOf(m)===i);
-  const body = {systemInstruction:{parts:[{text:sys}]}, contents:[{role:'user', parts}], generationConfig:{responseMimeType:'application/json', temperature}};
+  route = route || (parts.some(x=>x.inline_data) ? 'est' : 'qa');
+  const chain = modelChain(route);
+  const models = chain.filter(m=>!isExhausted(m));
+  if(!models.length) throw new Error(`今天的免費額度都用完了，${hhmm(Math.min(...chain.map(m=>EXHAUSTED[m])))} 後恢復。`);
+  const exhausted = chain.slice(0, chain.indexOf(models[0]));  // 已知額度用完、這次直接跳過的模型
+  const body = {systemInstruction:{parts:[{text:sys}]}, contents:[{role:'user', parts}], generationConfig:{responseMimeType:'application/json', temperature, maxOutputTokens:2048}};
+  const t0 = performance.now();
   let lastErr;
   for(const m of models){
     try{
-      const same = (x,y) => JSON.stringify(x) === JSON.stringify(y);
-      const tries = (m in THINK_OK) ? [THINK_OK[m], ...thinkOptions(m).filter(x=>!same(x, THINK_OK[m]))] : thinkOptions(m);
-      let r;
-      for(const tc of tries){
-        r = await geminiRequest(m, tc, body, onText);
-        if(r.ok){ THINK_OK[m] = tc; try{ localStorage.setItem('thinkOK', JSON.stringify(THINK_OK)); }catch(_){} break; }
-        if(!(r.status === 400 && tc)) break;  // 只有模型不支援該思考設定時才換下一種
+      const r = await requestModel(m, body);
+      if(!r.ok){
+        if(r.status === 429){ markExhausted(m, r.daily); exhausted.push(m); }
+        if(r.status === 404){ MODEL_STATUS[m] = {state:'unavail'}; LSset('modelStatus', MODEL_STATUS); }
+        const err = new Error(r.msg); err.status = r.status; throw err;
       }
-      if(!r.ok){ const err = new Error(r.msg); err.status = r.status; throw err; }
       if(!r.txt) throw new Error(r.block ? '內容被模型拒絕（' + r.block + '）' : '模型沒有回傳內容');
-      return parseJSON(r.txt);
+      let name = prettyModel(m);
+      if(r.modelVersion && !sameModel(r.modelVersion, m)){
+        name = `${prettyModel(m)} → 實際 ${prettyModel(cleanModel(r.modelVersion))}`;
+        if(!(MODEL_STATUS[m] && MODEL_STATUS[m].state === 'redirect') && [S.model, S.fallbackModel, S.liteModel].includes(m)) toast(`${prettyModel(m)} 已停用，實際由 ${prettyModel(cleanModel(r.modelVersion))} 處理，建議到設定頁改選其他模型`, 5000);
+        MODEL_STATUS[m] = {state:'redirect', actual:cleanModel(r.modelVersion)}; LSset('modelStatus', MODEL_STATUS);
+      }
+      const out = parseJSON(r.txt);
+      out._meta = `${route === 'qa' ? '問答' : '估計'} · ${name} · ${thinkLabel(THINK_OK[m])} · ${((performance.now()-t0)/1000).toFixed(1)} 秒`
+        + (exhausted.length ? ` · ${[...new Set(exhausted)].map(prettyModel).join('、')} 今日額度已用完，已改用` : '');
+      return out;
     }catch(e){
       lastErr = e;
       if(!(e.timeout || e.status === 429 || e.status === 404 || e.status >= 500)) break;
@@ -904,27 +1002,10 @@ async function callGemini(parts, sys, temperature=0.4, onText=null){
   }
   throw new Error(friendlyError(lastErr));
 }
-// 從尚未完整的 JSON 文字中取出已產生的欄位
-function partialField(txt, key){
-  const m = txt.match(new RegExp('"' + key + '"\\s*:\\s*"')); if(!m) return null;
-  let raw = '';
-  for(let i = m.index + m[0].length; i < txt.length; i++){
-    const ch = txt[i];
-    if(ch === '\\'){ if(i + 1 >= txt.length) break; raw += ch + txt[i+1]; i++; continue; }
-    if(ch === '"') break;
-    raw += ch;
-  }
-  raw = raw.replace(/\\u[0-9a-fA-F]{0,3}$/, '');
-  try{ return JSON.parse('"' + raw + '"'); }catch(_){ return null; }
-}
-function partialIntent(txt){
-  const m = txt.match(/"intent"\s*:\s*\[([^\]]*)\]/); if(!m) return null;
-  return (m[1].match(/"(\w+)"/g) || []).map(x=>x.replace(/"/g,''));
-}
 
 async function systemPrompt(){
   const w = await latestWeight();
-  const foods = await DB.foods.orderBy('useCount').reverse().limit(30).toArray();
+  const foods = await DB.foods.orderBy('useCount').reverse().limit(10).toArray();
   const foodLines = foods.length ? foods.map(f=>`- ${f.name}${f.brand?`（${f.brand}）`:''}：${f.servingDesc||'1 份'} = ${f.kcal} kcal、蛋白質 ${f.protein} g、碳水 ${f.carb} g、脂肪 ${f.fat} g${f.sodium?`、鈉 ${f.sodium} mg`:''}`).join('\n') : '（尚未建立）';
   const sex = S.sex === 'female' ? '女性' : '男性';
   return `# 角色與任務設定
@@ -948,30 +1029,32 @@ ${foodLines}
 3. 繁體中文（台灣），使用台灣日常飲食用語（如：便當、乾麵、茶葉蛋、大燕麥片、全家/超商、乳清蛋白）。
 4. 共鍋（如薑母鴨）或傳統麵攤外食，需特別注意隱形油脂（豬油、肉燥、麻油）與精緻澱粉的吸油情況，並反映在熱量估算中。
 5. 份量以台灣常見份量估算，熱量取整數，蛋白質、碳水、脂肪取整數克。
-6. 今日累計、剩餘額度與步數由 APP 計算後提供給你，請直接引用，不要自行另外推算。
+6. 所有數字計算都由 APP 負責：今日累計、剩餘額度、平均、份數換算、運動消耗、日期換算都不要自己算。reply 不可以做加減乘除、平均或推算剩餘量，只能原樣引用 APP 提供的數字。
 
 # 輸出格式
 只輸出一個 JSON 物件，不要有其他文字：
 {
   "type": "meal" 或 "exercise" 或 "question",
-  "date": "YYYY-MM-DD 或 null（學員明確提到其他日期時才填，例如「昨天」「10/20」，依 APP 提供的今天日期換算；沒提到填 null）",
-  "weights": [ { "date": "YYYY-MM-DD", "kg": 0 } ],
-  "meals": [ { "mealType": "breakfast" 或 "lunch" 或 "dinner" 或 "snack" 或 null, "photos": [這餐對應的照片編號，從 1 開始], "items": [ { "name": "食物名稱", "amount": "份量描述", "kcal": 0, "protein": 0, "carb": 0, "fat": 0 } ] } ],
-  "activities": [ { "kind": "walk|weights|run|swim|cycle|ball|other", "label": "簡短描述", "steps": null, "durationMin": null, "kcalBurned": 0 } ],
+  "when": null 或 {"daysAgo": 天數} 或 {"month": 月, "day": 日}（學員明確提到其他日期時才填，例如「昨天」填 {"daysAgo": 1}、「10/20」填 {"month": 10, "day": 20}；沒提到填 null，不要自己換算成日期）,
+  "weights": [ { "when": 同上格式或 null, "kg": 0 } ],
+  "meals": [ { "mealType": "breakfast" 或 "lunch" 或 "dinner" 或 "snack" 或 null, "photos": [這餐對應的照片編號，從 1 開始], "items": [ { "name": "食物名稱", "amount": "份量描述", "foodName": "學員常用食品的完整品名或 null", "servings": 份數或 null, "kcal": 0, "protein": 0, "carb": 0, "fat": 0 } ] } ],
+  "activities": [ { "kind": "walk|weights|run|swim|cycle|ball|other", "label": "簡短描述", "steps": null, "durationMin": null, "intensity": "easy" 或 "moderate" 或 "hard" } ],
   "reply": "給學員的回覆（Markdown）"
 }
 規則：
-- 餐點照片或描述吃了什麼 → type 為 "meal"，meals 內的 items 逐項拆解。reply 依序包含三段：「**點評**」（這餐的優缺點）、「**下一餐建議**」（依這餐加入後的剩餘熱量與蛋白質缺口，具體指示下一餐或睡前吃什麼，同時避免熱量或鈉爆表）、「**步數提醒**」（今日尚未記錄步數或未達標時提醒睡前確認）。
-- 描述運動或步數 → type 為 "exercise"，activities 逐項列出，kcalBurned 採保守估計，步數寫在 steps。reply 簡短點評並提醒飲食配合（例如練後補蛋白質）。
+- 餐點照片或描述吃了什麼 → type 為 "meal"，meals 內的 items 逐項拆解。reply 的 3 點依序為：這餐的優缺點、下一餐或睡前吃什麼（依 APP 提供的剩餘額度與蛋白質缺口給方向，不要寫計算出來的數字）、今日步數未記錄或未達標時提醒。APP 會在回覆後自動附上這餐熱量與今日剩餘額度。
+- 描述運動或步數 → type 為 "exercise"，activities 逐項列出，步數寫在 steps，不需要估算消耗熱量（APP 依類型、時間、強度計算）。reply 簡短點評並提醒飲食配合（例如練後補蛋白質）。
 - 提問 → type 為 "question"，reply 直接回答，需要時引用學員的紀錄。
 - 同一則訊息同時有餐點與運動 → type 為 "meal"，meals 與 activities 都要填。
-- 學員回報體重 → weights 填入（日期依學員所說，沒說就用 APP 提供的記錄日期），type 依其他內容判斷，沒有其他內容就用 "question"，reply 簡短回應。
+- 學員回報體重 → weights 填入（學員有說哪天量的才填 when，沒說填 null），type 依其他內容判斷，沒有其他內容就用 "question"，reply 簡短回應。
 - 多張照片：學員有說明哪些照片或食物屬於哪一餐（例如「前三張是午餐，後面是晚餐」）才拆成多筆 meals，每筆的 photos 填對應的照片編號；沒有說明就全部放在同一筆 meals。mealType 依學員說法判斷，沒提到填 null。
-- 不適用的欄位給空陣列或空字串。reply 控制在 250 字以內，用短段落或列點。
+- 品項是「學員常用食品」清單中的食品時，foodName 填清單上的完整品名、servings 填份數（例如 2 匙填 2），kcal、protein、carb、fat 填 0，由 APP 計算；不是常用食品時 foodName 與 servings 填 null。
+- 不適用的欄位給空陣列或空字串。
+- reply 一律用 Markdown 列點，最多 3 點、每點一句話；不要開場白、結尾、分段標題，也不要重複列出 APP 已顯示的數字。
 - 照片不是食物或無法辨識 → type 為 "question"，meals 為空陣列，reply 說明原因並請學員補充文字描述。`;
 }
 
-async function buildContext(date, mealType, includeMealLine=true){
+async function buildContext(date, mealType, includeMealLine=true, full=true){
   const d = await dayData(date);
   const t = d.t;
   const w = await latestWeight();
@@ -990,15 +1073,26 @@ async function buildContext(date, mealType, includeMealLine=true){
   const other = d.acts.filter(a=>!(a.kind==='walk' && a.steps));
   lines.push('今日運動：' + (other.length ? other.map(a=>`${a.label||ACT_NAME[a.kind]}${a.durationMin?` ${a.durationMin} 分鐘`:''}`).join('、') : '無'));
   lines.push(`目前體重：${w} kg`);
-  // 近 7 日
-  const from = addDays(date,-7), to = addDays(date,-1);
-  const ms = await DB.meals.where('date').between(from,to,true,true).toArray();
-  const by = {};
-  for(const m of ms){ const s = sumItems(m.items); by[m.date] = by[m.date] || {kcal:0,protein:0}; by[m.date].kcal += s.kcal; by[m.date].protein += s.protein; }
-  const days = Object.keys(by).sort();
-  lines.push('近 7 日每日攝取：' + (days.length ? days.map(k=>`${md2(k)} ${fmt(by[k].kcal)} kcal／蛋白質 ${fmt(by[k].protein)} g`).join('；') : '無紀錄'));
-  const wl = await DB.bodyLogs.where('date').between(addDays(date,-14),date,true,true).toArray();
-  if(wl.length) lines.push('近期體重：' + wl.sort((a,b)=>a.date<b.date?-1:1).map(x=>`${md2(x.date)} ${x.weight} kg`).join('；'));
+  if(full){  // 提問時才附近 7 天紀錄與近期體重
+    // 近 7 日
+    const from = addDays(date,-7), to = addDays(date,-1);
+    const ms = await DB.meals.where('date').between(from,to,true,true).toArray();
+    const by = {};
+    for(const m of ms){ const s = sumItems(m.items); by[m.date] = by[m.date] || {kcal:0,protein:0}; by[m.date].kcal += s.kcal; by[m.date].protein += s.protein; }
+    const days = Object.keys(by).sort();
+    lines.push('近 7 日每日攝取：' + (days.length ? days.map(k=>`${md2(k)} ${fmt(by[k].kcal)} kcal／蛋白質 ${fmt(by[k].protein)} g`).join('；') : '無紀錄'));
+    if(days.length){
+      const avgK = days.reduce((x,k)=>x+by[k].kcal,0)/days.length, avgP = days.reduce((x,k)=>x+by[k].protein,0)/days.length;
+      const hitK = days.filter(k=>by[k].kcal>=S.kcalMin && by[k].kcal<=S.kcalMax).length, hitP = days.filter(k=>by[k].protein>=S.pMin).length, low = days.filter(k=>by[k].kcal<S.floor).length;
+      lines.push(`近 7 日統計（APP 已計算，直接引用）：記錄 ${days.length} 天，平均熱量 ${fmt(avgK)} kcal、平均蛋白質 ${fmt(avgP)} g；熱量達標 ${hitK} 天、低於安全底線 ${low} 天、蛋白質達標 ${hitP} 天`);
+    }
+    const wl = await DB.bodyLogs.where('date').between(addDays(date,-14),date,true,true).toArray();
+    if(wl.length){
+      wl.sort((a,b)=>a.date<b.date?-1:1);
+      lines.push('近期體重：' + wl.map(x=>`${md2(x.date)} ${x.weight} kg`).join('；'));
+      if(wl.length >= 2){ const dv = Math.round((wl[wl.length-1].weight - wl[0].weight)*10)/10; lines.push(`近期體重變化（APP 已計算）：${md2(wl[0].date)} 到 ${md2(wl[wl.length-1].date)} ${dv>0?'+':''}${dv} kg`); }
+    }
+  }
   return lines.join('\n');
 }
 
@@ -1285,10 +1379,10 @@ async function renderToday(v){
   if(d.chats.length || state.pendingQ || state.lastError){
     html += foldHead('chats', '教練對話', d.chats.length ? `（${d.chats.length} 則）` : '') + `<div class="coll ${state.fold.chats?'closed':''}" data-coll="chats"><div>`;
     for(const c of d.chats){
-      html += `<div class="bubble q">${qImgs(photoIdsOf(c).map(id=>`data-photo="${id}"`), !!c.q)}${esc(c.q)}</div><div class="bubble a"><div class="md">${md(c.a)}</div></div>`;
+      html += `<div class="bubble q">${qImgs(photoIdsOf(c).map(id=>`data-photo="${id}"`), !!c.q)}${esc(c.q)}</div><div class="bubble a"><div class="md">${md(c.a)}</div>${c.meta?`<div class="small muted num" style="margin-top:6px;font-size:11px">${esc(c.meta)}</div>`:''}</div>`;
     }
     if(state.pendingQ) html += `<div class="bubble q">${qImgs(state.pendingImgs.map(u=>`src="${u}"`), !!state.pendingQ.trim())}${esc(state.pendingQ.trim())}</div>`
-      + (state.pendingA ? `<div class="bubble a" id="pendingA"><div class="md">${md(state.pendingA)}</div></div>` : `<div class="bubble a thinking" id="pendingA"><span class="dots"><span></span><span></span><span></span></span>教練正在思考…<span class="small" style="color:var(--warn)">（請先不要離開 APP）</span></div>`);
+      + (state.pendingA ? `<div class="bubble a" id="pendingA"><div class="md">${md(state.pendingA)}</div></div>` : `<div class="bubble a thinking" id="pendingA"><span class="dots"><span></span><span></span><span></span></span>${state.pendingRoute === 'qa' ? '教練正在思考回答…' : '教練正在估計中…'}<span class="small" style="color:var(--warn)">（請先不要離開 APP）</span></div>`);
     if(state.lastError) html += `<div class="bubble a" style="border:1.5px solid var(--bad)"><b style="color:var(--bad)">沒有成功</b><p style="margin:4px 0 0">${esc(state.lastError)}</p></div>`;
     html += `</div></div><div id="chatEnd"></div>`;
   }
@@ -1471,40 +1565,49 @@ async function send(){
   }
   if(!S.apiKey){ toast('這項功能需要 Gemini API 金鑰，請先到設定輸入'); return; }
 
+  const route = classifyMessage(text, photos.length > 0);
+  state.pendingRoute = route;
   if(state.fold.chats){ state.fold.chats = false; saveFold(); }
   state.busy = true; state.lastError = ''; state.pendingQ = text || ' '; state.pendingImgs = photos.map(x=>x.preview); state.photos = []; ta.value=''; autoGrow(); await render();
   window.scrollTo(0, document.body.scrollHeight);
   try{
-    const ctx = await buildContext(date, mealType);
+    const asking = !photos.length && /[?？]|嗎|呢|怎麼|如何|為什麼|為何|建議|該不該|可以|多少|什麼|哪|幫我|分析|總評|回顧|趨勢|這週|最近/.test(text);
+    const ctx = await buildContext(date, mealType, true, asking);
     const parts = [];
     for(const ph of photos) parts.push({inline_data:{mime_type:'image/jpeg', data:ph.base64}});
     parts.push({text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n${photos.length?`（附上 ${photos.length} 張餐點照片，依上傳順序為第 1～${photos.length} 張）\n`:''}${text?'文字：'+text:'（無文字說明）'}`});
-    const r = await callGemini(parts, await systemPrompt());
+    const r = await callGemini(parts, await systemPrompt(), 0.4, route);
     const reply = r.reply || r.comment || r.answer || '';
     const notes = [];
     const acts = Array.isArray(r.activities) ? r.activities.filter(a=>a && (a.kind||a.label)) : [];
     const okDate = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && Math.abs(diffDays(x, today())) <= 366;
-    const tDate = okDate(r.date) ? r.date : date;
+    const tDate = resolveWhen(r.when, okDate(r.date) ? r.date : date);
     const dTag = tDate !== date ? md2(tDate) + ' ' : '';
-    if(acts.length) notes.push(`**已記錄：${dTag}運動** ` + acts.map(a => a.kind==='walk' && num(a.steps) > 0 ? `走路 ${fmt(num(a.steps))} 步` : `${ACT_NAME[a.kind]||'運動'}${a.label?'（'+a.label+'）':''}${a.durationMin?' '+num(a.durationMin)+' 分鐘':''}`).join('、'));
+    const wNow = await latestWeight(), actNotes = [];
     for(const a of acts){
-      if(a.kind === 'walk' && num(a.steps) > 0) await saveSteps(tDate, Math.round(num(a.steps)), a.label);
-      else await DB.activities.add({date:tDate, kind: ACT_NAME[a.kind] ? a.kind : 'other', label:a.label||'', steps:a.steps?num(a.steps):null, durationMin:a.durationMin?num(a.durationMin):null, kcalBurned:num(a.kcalBurned), createdAt:Date.now()});
+      const kind = ACT_NAME[a.kind] ? a.kind : 'other';
+      if(kind === 'walk' && num(a.steps) > 0){ await saveSteps(tDate, Math.round(num(a.steps)), a.label); actNotes.push(`走路 ${fmt(num(a.steps))} 步`); continue; }
+      const mins = Math.round(num(a.durationMin)), inten = INTENSITY[a.intensity] ? a.intensity : 'moderate';
+      const burn = mins ? estimateBurn(kind, mins, inten, wNow) : 0;   // 消耗由程式計算
+      await DB.activities.add({date:tDate, kind, label:a.label||'', steps:a.steps?num(a.steps):null, durationMin:mins||null, intensity:inten, kcalBurned:burn, createdAt:Date.now()});
+      actNotes.push(`${ACT_NAME[kind]}${a.label?'（'+a.label+'）':''}${mins?' '+mins+' 分鐘':''}${burn?`，約消耗 ${fmt(burn)} 大卡`:''}`);
     }
+    if(actNotes.length) notes.push(`**已記錄：${dTag}運動** ${actNotes.join('、')}`);
     const wSaved = [];
     for(const wv of (Array.isArray(r.weights) ? r.weights : [])){
-      const kg = num(wv && wv.kg), wd = okDate(wv && wv.date) ? wv.date : tDate;
+      const kg = num(wv && wv.kg), wd = resolveWhen(wv && wv.when, okDate(wv && wv.date) ? wv.date : tDate);
       if(kg > 30 && kg < 250){ await saveWeight(wd, kg); wSaved.push(`${md2(wd)} ${Math.round(kg*10)/10} kg`); }
     }
     if(wSaved.length) notes.push(`**已記錄：體重** ${wSaved.join('、')}`);
     const photoIds = [];
     for(const ph of photos) photoIds.push(await DB.photos.add({blob:ph.blob}));
     const rawMeals = Array.isArray(r.meals) ? r.meals : (Array.isArray(r.items) ? [{mealType:r.mealType, items:r.items, photos:[]}] : []);
-    const meals = rawMeals.map(m=>({
-      mealType: MEAL_NAME[m && m.mealType] ? m.mealType : defaultMealType(),
-      items: (Array.isArray(m && m.items) ? m.items : []).filter(i=>i && i.name).map(normItem),
-      photos: (Array.isArray(m && m.photos) ? m.photos : []).map(Number).filter(n=>n >= 1 && n <= photos.length)
-    })).filter(m=>m.items.length);
+    const meals = [];
+    for(const m of rawMeals){
+      const its = await resolveItems(Array.isArray(m && m.items) ? m.items : []);
+      if(its.length) meals.push({mealType: MEAL_NAME[m && m.mealType] ? m.mealType : defaultMealType(), items:its,
+        photos:(Array.isArray(m && m.photos) ? m.photos : []).map(Number).filter(n=>n >= 1 && n <= photos.length)});
+    }
     if(meals.length === 1) meals[0].photos = photos.map((_,i)=>i+1);
     else if(meals.length > 1){
       const used = new Set(meals.flatMap(m=>m.photos));
@@ -1516,10 +1619,14 @@ async function send(){
       const sm = sumItems(m.items);
       const id = await DB.meals.add({date:tDate, mealType:m.mealType, items:m.items, photoId:ids[0]||null, photoIds:ids, comment:reply, sourceText:text, createdAt:Date.now(), updatedAt:Date.now()});
       if(!firstMealId) firstMealId = id;
+      for(const i of m.items) if(i.foodId){ const f = await DB.foods.get(i.foodId); if(f) await DB.foods.update(f.id, {useCount:(f.useCount||0)+1}); }
       mealNotes.push(`**已記錄：${dTag}${MEAL_NAME[m.mealType]}** ${m.items.map(i=>i.name).join('、')}，共 ${fmt(sm.kcal)} 大卡、蛋白質 ${fmt(sm.protein)} g`);
     }
-    if(mealNotes.length) mealNotes[mealNotes.length-1] += '（數字不對可按餐點的「編輯」修改）';
-    await DB.chats.add({date, q:text, photoId:photoIds[0]||null, photoIds, mealId:firstMealId, a:[reply, ...mealNotes, ...notes].filter(Boolean).join('\n\n') || '（沒有回覆內容）', createdAt:Date.now()});
+    if(mealNotes.length){
+      mealNotes[mealNotes.length-1] += '（數字不對可按餐點的「編輯」修改）';
+      notes.push(await progressLine(tDate));   // 剩餘額度由程式計算，放在最後
+    }
+    await DB.chats.add({date, q:text, photoId:photoIds[0]||null, photoIds, mealId:firstMealId, a:[reply, ...mealNotes, ...notes].filter(Boolean).join('\n\n') || '（沒有回覆內容）', meta:r._meta||'', createdAt:Date.now()});
   }catch(e){
     ta.value = text; autoGrow(); state.photos = photos;
     state.lastError = e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message;
@@ -1537,8 +1644,8 @@ async function review(){
   window.scrollTo(0, document.body.scrollHeight);
   try{
     const ctx = await buildContext(state.date, null, false);
-    const r = await callGemini([{text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n請依今日全部紀錄做今日總評，type 為 "question"，reply 包含：今日整體表現（熱量與蛋白質是否達標）、做得好的地方、需要改進的地方、明天的具體建議與步數提醒。`}], await systemPrompt());
-    await DB.chats.add({date:state.date, q:'今日總評', a:r.reply||r.answer||r.comment||'', createdAt:Date.now()});
+    const r = await callGemini([{text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n請依今日全部紀錄做今日總評，type 為 "question"，reply 最多 3 點、每點一句話，依序為：今日熱量與蛋白質是否達標、最需要改進的地方、明天的具體建議（含步數）。`}], await systemPrompt());
+    await DB.chats.add({date:state.date, q:'今日總評', a:r.reply||r.answer||r.comment||'', meta:r._meta||'', createdAt:Date.now()});
   }catch(e){ state.lastError = e.message; }
   finally{ state.busy = false; state.pendingQ = ''; await render(); window.scrollTo(0, document.body.scrollHeight); }
 }
@@ -1573,10 +1680,10 @@ function startRecognition(base64s, date, mealType, entries){
   (async()=>{
     let got = [], err = '';
     try{
-      const ctx = await buildContext(date, mealType);
+      const ctx = await buildContext(date, mealType, true, false);
       const r = await callGemini([...base64s.map(b=>({inline_data:{mime_type:'image/jpeg', data:b}})), {text:`【APP 提供的狀態】\n${ctx}\n\n【學員訊息】\n（附上 ${base64s.length} 張餐點照片，全部屬於同一筆${MEAL_NAME[mealType]||'餐點'}。只需要辨識品項填入 meals；可以辨識時 reply 給空字串，無法辨識時 meals 給空陣列，並在 reply 用一句話說明原因。）`}], await systemPrompt());
       const src = Array.isArray(r.meals) ? r.meals.flatMap(m=>Array.isArray(m && m.items) ? m.items : []) : (Array.isArray(r.items) ? r.items : []);
-      got = src.filter(i=>i && i.name).map(normItem);
+      got = await resolveItems(src);
       if(!got.length) err = r.reply || '照片中找不到可辨識的食物，請換一張照片或手動輸入';
     }catch(e){ err = e.message === 'NO_KEY' ? '請先到設定輸入 API 金鑰' : e.message; }
     job.running = false;
@@ -1961,8 +2068,9 @@ function renderSettings(v){
     <p class="small muted">金鑰只存在這支手機。免費方案的內容可能被 Google 用於改善模型。</p>
     <label class="field"><span>API 金鑰</span><div class="keybox"><input class="in" id="s-apiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(S.apiKey)}"><button type="button" class="eye" data-eye="s-apiKey" aria-label="顯示或隱藏金鑰">${EYE_OPEN}</button></div></label>
     <div class="btns"><button class="btn ghost sm" data-act="testKey">測試金鑰</button><button class="btn ghost sm" data-act="listModels">重新偵測模型</button></div>
-    <label class="field"><span>照片辨識模型</span><select class="in" id="s-model"><option value="${esc(S.model)}">${esc(S.model)}</option></select></label>
-    <label class="field"><span>文字對話模型</span><select class="in" id="s-fallbackModel"><option value="${esc(S.fallbackModel)}">${esc(S.fallbackModel||'不使用')}</option></select></label>
+    <label class="field"><span>估計用模型（照片與記錄）</span><select class="in" id="s-model"></select></label>
+    <label class="field"><span>估計備用模型</span><select class="in" id="s-fallbackModel"></select></label>
+    <label class="field"><span>推薦與問答模型</span><select class="in" id="s-liteModel"></select></label>
     <p class="small muted" id="modelInfo"></p>
   </section>
 
@@ -2009,7 +2117,7 @@ function renderSettings(v){
 function readSettingsForm(){
   const g = id => { const el = $('#s-'+id); return el ? el.value.trim() : undefined; };
   const n = ['age','height','weight','bmr','floor','tdeeMin','tdeeMax','kcalMin','kcalMax','pMin','pMax','stepGoal','trainMin','trainMax'];
-  const out = {apiKey:g('apiKey'), model:cleanModel(g('model'))||DEFAULTS.model, fallbackModel:cleanModel(g('fallbackModel')), sex:g('sex'), goal:g('goal'), phase:PHASE[g('goal')]||S.phase, bodyNote:g('bodyNote'), activityDesc:g('activityDesc'), startDate:g('startDate')||today()};
+  const out = {apiKey:g('apiKey'), model:cleanModel(g('model'))||DEFAULTS.model, fallbackModel:cleanModel(g('fallbackModel'))||S.fallbackModel, liteModel:cleanModel(g('liteModel'))||S.liteModel, sex:g('sex'), goal:g('goal'), phase:PHASE[g('goal')]||S.phase, bodyNote:g('bodyNote'), activityDesc:g('activityDesc'), startDate:g('startDate')||today()};
   for(const k of n) out[k] = num(g(k)) || DEFAULTS[k];
   return out;
 }
@@ -2083,7 +2191,7 @@ const ACTIONS = {
     try{ await callGemini([{text:'回覆 {"ok":true}'}], '只輸出 JSON。', 0); toast('金鑰可以使用 ✓'); }
     catch(e){ toast(e.message === 'NO_KEY' ? '請先貼上金鑰' : e.message, 4500); }
   },
-  listModels: () => fillModelSelects(),
+  listModels: () => fillModelSelects(true),
   rerunWizard: () => openWizard(),
   adjNow: async () => {
     const st = await computeStats();
@@ -2119,8 +2227,9 @@ $('#photoInput').addEventListener('change', async e=>{
 $('#labelInput').addEventListener('change', e=>{ const file = e.target.files[0]; e.target.value=''; if(file) scanLabel(file); });
 document.addEventListener('change', async e=>{
   const id = e.target.id;
-  if(id === 's-model' || id === 's-fallbackModel'){
-    S[id === 's-model' ? 'model' : 'fallbackModel'] = e.target.value; S.modelManual = true;
+  const mf = MODEL_FIELDS.find(f=>f[0] === '#' + id);
+  if(mf){
+    S[mf[1]] = e.target.value; S.modelManual = true;
     await saveSettings(); toast('已切換模型');
   }
   if(id === 's-apiKey') fillModelSelects();
@@ -2147,7 +2256,7 @@ document.addEventListener('visibilitychange', ()=>{
     state.calMonth = today().slice(0,7);
     await render();
     if(!S.profileDone) openWizard();
-    else if(S.apiKey && !S.modelManual) autoPickModels(S.apiKey).catch(()=>{});
+    else if(S.apiKey) refreshModelList(S.apiKey).catch(()=>{});
     new ResizeObserver(updateComposeHeight).observe($('#composer'));
   }catch(e){
     $('#view').innerHTML = `<div class="card">啟動失敗：${esc(e.message)}<br><span class="small muted">請確認網路連線後重新開啟。</span></div>`;
